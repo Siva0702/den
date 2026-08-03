@@ -54,7 +54,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v16.0 Exchange Leverage Calibrated 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v16.2 Dynamic Margin Sizing Active 24/7")
 
     def log_message(self, format, *args):
         return
@@ -69,7 +69,7 @@ def run_continuous_quant_hunter():
     universe = DynamicMarketUniverse.get_full_hunting_universe()
     learned_weights = SelfLearningQuantEngine.get_learned_weights()
 
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v16.0 EXCHANGE CALIBRATED | Scanning {len(universe)} Global Assets for Bitunix & Weex Calibrated Setups...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v16.2 DYNAMIC MARGIN SIZING | Scanning {len(universe)} Global Assets for Mathematically Exact Leverage Setups...")
 
     # Active Position Cap (7 Positions)
     active_positions = monitor.load_positions()
@@ -147,28 +147,38 @@ def run_continuous_quant_hunter():
             entry = current_price
             
             risk_params = CapitalDefenseShield.get_dynamic_risk_params(ACCOUNT_BALANCE, signal["win_rate"])
-            dollars_at_risk = risk_params["dollars_at_risk"]
-            potential_gain = dollars_at_risk * (regime_meta["tp_multiplier"] / regime_meta["sl_multiplier"])
+            target_risk_usd = risk_params["dollars_at_risk"]
 
             sl = round(entry - (signal["atr"] * regime_meta["sl_multiplier"]) if direction == "LONG" else entry + (signal["atr"] * regime_meta["sl_multiplier"]), 2)
             tp = round(entry + (signal["atr"] * regime_meta["tp_multiplier"]) if direction == "LONG" else entry - (signal["atr"] * regime_meta["tp_multiplier"]), 2)
+            
+            sl_pct = abs(entry - sl) / entry
+            tp_pct = abs(tp - entry) / entry
             
             duration_meta = PrecisionDurationEstimator.calculate_estimated_duration(
                 entry, tp, signal["atr"], velocity_meta["velocity_ratio"]
             )
 
-            sl_pct = abs(entry - sl) / entry
-            tp_pct = abs(tp - entry) / entry
-            
-            notional_position = dollars_at_risk / max(sl_pct, 0.001)
-            suggested_margin = 100.0
-            raw_leverage = max(round(notional_position / suggested_margin), 15)
+            # Bitunix & Weex Calibrated Leverage & Dynamic Margin Calculation
+            raw_ideal_leverage = max(round(1.0 / max(sl_pct * 2.5, 0.01)), 15)
+            lev_meta = ExchangeLeverageEngine.get_calibrated_leverage(ticker, raw_ideal_leverage)
+            chosen_leverage = lev_meta["recommended_leverage"]
 
-            # Bitunix & Weex Leverage Calibration
-            lev_meta = ExchangeLeverageEngine.get_calibrated_leverage(ticker, raw_leverage)
+            # Dynamic Margin Sizing Formula: Position Notional = Target Risk / SL_Pct
+            target_notional = target_risk_usd / max(sl_pct, 0.0005)
+            calculated_margin = round(target_notional / chosen_leverage, 2)
+            
+            # Cap margin at safe 20% of account ($200 USDT)
+            final_margin = min(max(calculated_margin, 20.0), 200.0)
+            actual_notional = final_margin * chosen_leverage
+            
+            # Exact Math Returns
+            exact_loss_usd = round(actual_notional * sl_pct, 2)
+            exact_gain_usd = round(actual_notional * tp_pct, 2)
+            roi_gain_pct = round((exact_gain_usd / final_margin) * 100, 1)
 
             alert_msg = f"""
-🎯 **DEN ENGINE v16.0 SURE-SHOT SIGNAL: {ticker}** 🎯
+🎯 **DEN ENGINE v16.2 EXACT SURE-SHOT SIGNAL: {ticker}** 🎯
 ━━━━━━━━━━━━━━━━━━━━━━━━
 • **Asset:** `{ticker}` ({sector})
 • **Regime:** `{regime_meta['regime']}` (Vol Expansion: `{regime_meta['vol_expansion_ratio']}x`)
@@ -186,21 +196,21 @@ def run_continuous_quant_hunter():
 • **Volume POC:** `${poc_meta['poc']:,.2f}` (Aligned: `{direction}`)
 • **VWAP Benchmark:** `${signal['vwap']:,.2f}` (Aligned: `{direction}`)
 
-⚡ **CALIBRATED EXECUTION ({lev_meta['primary_exchange']} Isolated)**
+⚡ **EXACT MATHEMATICAL EXECUTION ({lev_meta['primary_exchange']} Isolated)**
 • **Entry Price:** `${entry:,.2f}`
 • **Stop Loss (SL):** `${sl:,.2f}` (-{sl_pct*100:.2f}%)
 • **Take Profit (TP):** `${tp:,.2f}` (+{tp_pct*100:.2f}%)  <-- SINGLE TP
-• **Recommended Leverage:** `{lev_meta['recommended_leverage']}x Isolated` (Max: `{lev_meta['max_exchange_leverage']}x`)
-• **Required Margin:** `${suggested_margin:,.2f} USDT` (10% Buffer)
-• **Hard Risk (SL Exit):** `${dollars_at_risk:,.2f} USDT` ({dollars_at_risk/ACCOUNT_BALANCE*100:.1f}%)
-• **Potential Gain (TP Exit):** `${potential_gain:,.2f} USDT` (+{potential_gain/ACCOUNT_BALANCE*100:.1f}% Account Gain)
+• **Recommended Leverage:** `{chosen_leverage}x Isolated` (Max: `{lev_meta['max_exchange_leverage']}x`)
+• **Adjusted Margin:** `${final_margin:,.2f} USDT` (Notional: `${actual_notional:,.2f}`)
+• **Exact Hard Risk (SL Exit):** `${exact_loss_usd:,.2f} USDT` (-{exact_loss_usd/ACCOUNT_BALANCE*100:.1f}% Equity)
+• **Exact Potential Gain (TP Exit):** `${exact_gain_usd:,.2f} USDT` (+{roi_gain_pct}% Margin ROI / +{exact_gain_usd/ACCOUNT_BALANCE*100:.1f}% Equity)
 ━━━━━━━━━━━━━━━━━━━━━━━━
+[✓] Dynamic Margin Sizing & Exact Profit/Loss Math Applied
 [✓] Bitunix & Weex Leverage Matrix Calibrated
-[✓] 4-Hour Per-Ticker Cooldown Enforced (Zero Spam)
             """
             telegram.send_alert(alert_msg)
             SignalCooldownEngine.record_signal_sent(ticker)
-            print(f"[✓] v16.0 SIGNAL DISPATCHED FOR {ticker}")
+            print(f"[✓] v16.2 EXACT SIGNAL DISPATCHED FOR {ticker}")
 
             positions = monitor.load_positions()
             positions.append({
@@ -219,7 +229,7 @@ def run_continuous_quant_hunter():
 
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
-    print("🚀 Anti Gravity Den Engine v16.0 Exchange Calibrated Active (Continuous 24/7 Cloud Loop)...")
+    print("🚀 Anti Gravity Den Engine v16.2 Dynamic Margin Active (Continuous 24/7 Cloud Loop)...")
     try:
         while True:
             run_continuous_quant_hunter()
