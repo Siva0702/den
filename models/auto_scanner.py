@@ -14,6 +14,7 @@ from indicators.confluence_engine import SureShotConfluenceEngine
 from indicators.advanced_quant import AdvancedQuantEngine
 from indicators.macro_regime import MacroRegimeFilter
 from position_monitor import ActivePositionMonitor
+from audit.track_record import PerformanceTrackRecord
 from news.news_fetcher import RealtimeNewsFetcher
 from news.market_universe import DynamicMarketUniverse
 from data.live_feed import RealtimeMarketDataFeed
@@ -86,18 +87,18 @@ def run_continuous_quant_hunter():
 
         if signal["is_sure_shot"]:
             direction = signal["direction"]
-            entry = signal["entry_price"]
+            entry = round(signal["entry_price"], 2)
             
-            # Tight Stop-Loss (1.2x ATR distance) for fast intraday 1-hour target execution
-            sl = entry - (signal["atr"] * 1.2) if direction == "LONG" else entry + (signal["atr"] * 1.2)
-            tp = entry + (signal["atr"] * 3.6) if direction == "LONG" else entry - (signal["atr"] * 3.6)
+            # Tight Stop-Loss (1.2x ATR distance) formatted strictly to 2 decimals
+            sl = round(entry - (signal["atr"] * 1.2) if direction == "LONG" else entry + (signal["atr"] * 1.2), 2)
+            tp = round(entry + (signal["atr"] * 3.6) if direction == "LONG" else entry - (signal["atr"] * 3.6), 2)
             
             sl_pct = abs(entry - sl) / entry
             tp_pct = abs(tp - entry) / entry
             
             # High-Conviction Kelly Risk ($35.00 USDT Risk per setup)
-            dollars_at_risk = ACCOUNT_BALANCE * min(max(signal["win_rate"] * 0.08, 0.03), 0.05)
-            notional_position = dollars_at_risk / sl_pct
+            dollars_at_risk = 35.0
+            notional_position = dollars_at_risk / max(sl_pct, 0.001)
             
             # Post ~$100 USDT Isolated Margin per trade (10% Buffer)
             suggested_margin = 100.0
@@ -116,25 +117,25 @@ def run_continuous_quant_hunter():
 📰 **SMC & QUANT DRIVERS**
 • **Headline:** "{headline_text}"
 • **HF Sentiment:** `{sentiment['dominant_sentiment']}` ({sm}x Multiplier)
-• **Macro Bias:** `{macro_meta['macro_bias']}` (SPY: `${macro_meta['spy_price']}`)
-• **VWAP Benchmark:** `${signal['vwap']:,.4f}` (Aligned: `{signal['direction']}`)
+• **Macro Bias:** `{macro_meta['macro_bias']}` (SPY: `${macro_meta['spy_price']:,.2f}`)
+• **VWAP Benchmark:** `${signal['vwap']:,.2f}` (Aligned: `{signal['direction']}`)
 • **Vol Regime:** `{quant_meta['volatility_regime']}`
 • **Technical Setup:** Structural Break + `{signal['fvg_detected']}`
 
 ⚡ **HIGH-LEVERAGE EXECUTION (Bitunix Isolated)**
-• **Entry Price:** `${entry:,.4f}`
-• **Tight Stop Loss:** `${sl:,.4f}` (-{sl_pct*100:.2f}%)
-• **Take Profit Target:** `${tp:,.4f}` (+{tp_pct*100:.2f}%)
+• **Entry Price:** `${entry:,.2f}`
+• **Tight Stop Loss:** `${sl:,.2f}` (-{sl_pct*100:.2f}%)
+• **Take Profit Target:** `${tp:,.2f}` (+{tp_pct*100:.2f}%)
 • **Recommended Leverage:** `{suggested_leverage}x Isolated`
 • **Required Isolated Margin:** `${suggested_margin:,.2f} USDT` (10% Buffer)
-• **Hard Risk (SL Exit):** `${dollars_at_risk:,.2f} USDT` ({dollars_at_risk/ACCOUNT_BALANCE*100:.1f}%)
-• **Potential Gain (TP Exit):** `${dollars_at_risk * 3.0:,.2f} USDT` (+{dollars_at_risk * 3.0 / ACCOUNT_BALANCE * 100:.1f}%)
+• **Hard Risk (SL Exit):** `${dollars_at_risk:,.2f} USDT` (3.5%)
+• **Potential Gain (TP Exit):** `${dollars_at_risk * 3.0:,.2f} USDT` (+10.5% Account Gain)
 ━━━━━━━━━━━━━━━━━━━━━━━━
             """
             telegram.send_alert(alert_msg)
             print(f"[✓] v5.0 APEX OPPORTUNITY DISPATCHED FOR {ticker}")
 
-            # Register into active position tracking
+            # Register into active position tracking & audit log
             positions = monitor.load_positions()
             positions.append({
                 "ticker": ticker,
@@ -145,6 +146,11 @@ def run_continuous_quant_hunter():
                 "time": time.strftime('%Y-%m-%d %H:%M:%S')
             })
             monitor.save_positions(positions)
+            
+            # Log into Track Record Audit File
+            PerformanceTrackRecord.log_trade_signal(
+                ticker, direction, entry, sl, tp, signal["win_rate"], signal["expected_value"]
+            )
 
 if __name__ == "__main__":
     # Start Cloud Web Health Check Server in background thread
