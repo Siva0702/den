@@ -18,8 +18,8 @@ load_dotenv()
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8847828896:AAFcTqjJGe6VN6mbPHcB1QTlvkpQxhb5ntI")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "7347569157")
 
-# Target Capital Base: $100 USDT
-ACCOUNT_BALANCE = 100.0
+# Target Capital Pool: $1,000 USDT (Targeting 75% - 300%+ Monthly ROI)
+ACCOUNT_BALANCE = 1000.0
 
 WATCHLIST = [
     {"ticker": "SOL/USDT", "asset_class": "Crypto Futures"},
@@ -34,7 +34,7 @@ news_engine = RealtimeNewsFetcher()
 telegram = TelegramAlertBot(BOT_TOKEN, CHAT_ID)
 
 def run_silent_quant_scan():
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Silent Quant Scan Running ($100 USDT Account Base)...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Aggressive High-ROI Quant Scan Running ($1,000 USDT Account Base)...")
 
     # Fetch global news wire
     headlines = news_engine.fetch_latest_headlines(limit=1)
@@ -64,22 +64,27 @@ def run_silent_quant_scan():
             # Format and send HIGH-CONFLUENCE SIGNAL ONLY
             direction = signal["direction"]
             entry = signal["entry_price"]
-            sl = entry - (signal["atr"] * 1.5) if direction == "LONG" else entry + (signal["atr"] * 1.5)
-            tp = entry + (signal["atr"] * 3.75) if direction == "LONG" else entry - (signal["atr"] * 3.75)
+            
+            # Tight Stop-Loss (1.2x ATR) for high position sizing & protection
+            sl = entry - (signal["atr"] * 1.2) if direction == "LONG" else entry + (signal["atr"] * 1.2)
+            tp = entry + (signal["atr"] * 3.6) if direction == "LONG" else entry - (signal["atr"] * 3.6)
             
             sl_pct = abs(entry - sl) / entry
-            dollars_at_risk = ACCOUNT_BALANCE * (signal["win_rate"] * 0.10) # Scaled risk for $100 balance
+            tp_pct = abs(tp - entry) / entry
+            
+            # High-Conviction Kelly Risk (3% to 5% of $1,000 = $30 to $50 risk)
+            dollars_at_risk = ACCOUNT_BALANCE * min(max(signal["win_rate"] * 0.08, 0.03), 0.05)
             notional_position = dollars_at_risk / sl_pct
             
-            # Target ~10% margin allocation ($10 USDT) to keep 90% liquid buffer
-            suggested_margin = min(ACCOUNT_BALANCE * 0.10, 10.0) # $10 USDT max margin per trade
-            suggested_leverage = max(round(notional_position / suggested_margin), 5)
-            suggested_leverage = min(suggested_leverage, 20) # Cap at 20x for risk defense
+            # Post ~$100 USDT Isolated Margin per trade (10% of account equity)
+            suggested_margin = 100.0
+            suggested_leverage = max(round(notional_position / suggested_margin), 10)
 
             alert_msg = f"""
-🎯 **SURE-SHOT QUANT SIGNAL DETECTED** 🎯
+🚀 **ANTI GRAVITY AGGRESSIVE SIGNAL: {ticker}** 🚀
 ━━━━━━━━━━━━━━━━━━━━━━━━
 • **Asset:** `{ticker}` ({item['asset_class']})
+• **Target ROI Goal:** `$750 – $3,000+/mo (75%–300%)`
 • **Account Equity:** `${ACCOUNT_BALANCE:,.2f} USDT`
 • **Direction:** `{direction}`
 • **Model Win Rate:** `{signal['win_rate']*100:.1f}%` | **EV:** `+{signal['expected_value']:.2f}`
@@ -89,17 +94,18 @@ def run_silent_quant_scan():
 • **NLP Sentiment:** `{sentiment['dominant_sentiment']}` ({sm}x Multiplier)
 • **Technical Setup:** Structural Break + `{signal['fvg_detected']}`
 
-⚡ **EXECUTION COMMAND (Bitunix Isolated)**
+⚡ **HIGH-LEVERAGE EXECUTION (Bitunix Isolated)**
 • **Entry Price:** `${entry:,.4f}`
-• **Stop Loss:** `${sl:,.4f}` (-{sl_pct*100:.2f}%)
-• **Take Profit:** `${tp:,.4f}`
+• **Tight Stop Loss:** `${sl:,.4f}` (-{sl_pct*100:.2f}%)
+• **Take Profit Target:** `${tp:,.4f}` (+{tp_pct*100:.2f}%)
 • **Recommended Leverage:** `{suggested_leverage}x Isolated`
-• **Required Isolated Margin:** `${suggested_margin:,.2f} USDT`
-• **Capital at Risk:** `${dollars_at_risk:,.2f} USDT` ({dollars_at_risk/ACCOUNT_BALANCE*100:.1f}%)
+• **Required Isolated Margin:** `${suggested_margin:,.2f} USDT` (10% Buffer)
+• **Hard Risk (SL Exit):** `${dollars_at_risk:,.2f} USDT` ({dollars_at_risk/ACCOUNT_BALANCE*100:.1f}%)
+• **Potential Gain (TP Exit):** `${dollars_at_risk * 3.0:,.2f} USDT` (+{dollars_at_risk * 3.0 / ACCOUNT_BALANCE * 100:.1f}%)
 ━━━━━━━━━━━━━━━━━━━━━━━━
             """
             telegram.send_alert(alert_msg)
-            print(f"[✓] SURE-SHOT ALERT DISPATCHED FOR {ticker}")
+            print(f"[✓] AGGRESSIVE SURE-SHOT ALERT DISPATCHED FOR {ticker}")
 
             # Register into active position tracking
             positions = monitor.load_positions()
@@ -114,10 +120,10 @@ def run_silent_quant_scan():
             monitor.save_positions(positions)
 
 if __name__ == "__main__":
-    print("🚀 Anti Gravity Silent Auto-Scanner Active ($100 USDT Account Base, 5-minute interval)...")
+    print("🚀 Anti Gravity Aggressive Quant Scanner Active ($1,000 USDT Account Base, 5-min interval)...")
     try:
         while True:
             run_silent_quant_scan()
             time.sleep(300) # Scan quietly every 5 minutes
     except KeyboardInterrupt:
-        print("\n[!] Silent Scanner stopped by user.")
+        print("\n[!] Scanner stopped by user.")
