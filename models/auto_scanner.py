@@ -21,6 +21,7 @@ from indicators.orderflow_imbalance import InstitutionalOrderFlowEngine
 from ml.self_learning import SelfLearningQuantEngine
 from ml.internet_learning import InternetQuantLearningEngine
 from news.macro_events import USMacroEventEngine
+from news.regulatory_events import USRegulatoryPolicyEngine
 from position_monitor import ActivePositionMonitor
 from audit.track_record import PerformanceTrackRecord
 from news.news_fetcher import RealtimeNewsFetcher
@@ -45,7 +46,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v10.1 Dynamic Balance Active & Operational 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v10.3 Regulatory Clarity Active & Operational 24/7")
 
     def log_message(self, format, *args):
         return
@@ -59,13 +60,18 @@ def start_health_server():
 def run_continuous_quant_hunter():
     universe = DynamicMarketUniverse.get_full_hunting_universe()
     learned_weights = SelfLearningQuantEngine.get_learned_weights()
+    internet_knowledge = InternetQuantLearningEngine.fetch_and_update_knowledge()
 
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v10.1 DYNAMIC BALANCE | Scanning {len(universe)} Global Assets for 70%+ Win-Rate Setups...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v10.3 REGULATORY CLARITY | Scanning {len(universe)} Global Assets Across Clarity Act, Fed, and Orderflow...")
 
     headlines = news_engine.fetch_latest_headlines(limit=2)
     headline_text = headlines[0]['headline'] if headlines else "Global macro markets trading within active momentum volatility."
     sentiment = nlp.analyze_news_ensemble(headline_text)
     sm = sentiment["sentiment_multiplier"] * learned_weights.get("sentiment_weight", 1.0)
+
+    # US Legislative & Regulatory Clarity Act Tracking
+    regulatory_meta = USRegulatoryPolicyEngine.analyze_regulatory_climate()
+    reg_multiplier = regulatory_meta["regulatory_multiplier"]
 
     macro_events = USMacroEventEngine.get_macro_event_multiplier()
     macro_multiplier = macro_events["macro_multiplier"]
@@ -101,7 +107,7 @@ def run_continuous_quant_hunter():
         orderflow = InstitutionalOrderFlowEngine.analyze_orderflow(df)
 
         # 3. Evaluate High-Confluence 70%+ Win-Rate Opportunities
-        effective_multiplier = sm * macro_multiplier * macro_meta["macro_score"] * funding_meta["squeeze_tailwind"]
+        effective_multiplier = sm * reg_multiplier * macro_multiplier * macro_meta["macro_score"] * funding_meta["squeeze_tailwind"]
         signal = SureShotConfluenceEngine.evaluate_setup(df, effective_multiplier, base_win_rate=learned_weights.get("base_win_rate", 0.58))
 
         if signal["is_sure_shot"] and is_real:
@@ -124,7 +130,7 @@ def run_continuous_quant_hunter():
             suggested_leverage = max(round(notional_position / suggested_margin), 15)
 
             alert_msg = f"""
-🎯 **DEN ENGINE v10.1 SURE-SHOT SIGNAL: {ticker}** 🎯
+🎯 **DEN ENGINE v10.3 REGULATORY SURE-SHOT SIGNAL: {ticker}** 🎯
 ━━━━━━━━━━━━━━━━━━━━━━━━
 • **Asset:** `{ticker}` ({sector})
 • **Setup Type:** `INTRADAY MOMENTUM SCALP`
@@ -133,11 +139,11 @@ def run_continuous_quant_hunter():
 • **Direction:** `{direction}` 🚀
 • **Model Win Rate:** `{signal['win_rate']*100:.1f}%` | **EV:** `+{signal['expected_value']:.2f}`
 
-⚡ **ORDER FLOW & QUANTUM DRIVERS**
+🏛️ **US REGULATORY & LEGISLATIVE DRIVERS**
+• **US Regulatory Status:** `{regulatory_meta['regulatory_status']}` ({reg_multiplier}x Multiplier)
+• **Policy Wire:** "{regulatory_meta['headline_match']}"
 • **Taker Buy Orderflow:** `{orderflow['buy_ratio']}%` (Buying Influx)
-• **Momentum Velocity:** `{velocity_meta['velocity_ratio']}x` (Exploding: `{velocity_meta['is_exploding']}`)
 • **8h Funding Rate:** `{funding_meta['funding_pct']}%` ({funding_meta['status']})
-• **Headline:** "{headline_text}"
 • **Volume POC:** `${poc_meta['poc']:,.2f}` (Aligned: `{direction}`)
 • **VWAP Benchmark:** `${signal['vwap']:,.2f}` (Aligned: `{direction}`)
 
@@ -150,11 +156,11 @@ def run_continuous_quant_hunter():
 • **Hard Risk (SL Exit):** `${dollars_at_risk:,.2f} USDT` (3.5%)
 • **Potential Gain (TP Exit):** `${dollars_at_risk * 3.0:,.2f} USDT` (+10.5% Account Gain)
 ━━━━━━━━━━━━━━━━━━━━━━━━
-[✓] Guaranteed 70%+ Win Rate Threshold Applied
-[✓] High-Frequency Multi-Asset Scan Active
+[✓] US Clarity Act & FIT21 Policy Wire Filtered
+[✓] 82+ Asset High-Frequency Scan Active
             """
             telegram.send_alert(alert_msg)
-            print(f"[✓] v10.1 DYNAMIC BALANCE SIGNAL DISPATCHED FOR {ticker}")
+            print(f"[✓] v10.3 REGULATORY SIGNAL DISPATCHED FOR {ticker}")
 
             positions = monitor.load_positions()
             positions.append({
@@ -173,7 +179,7 @@ def run_continuous_quant_hunter():
 
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
-    print("🚀 Anti Gravity Den Engine v10.1 Dynamic Balance Active (Continuous 24/7 Cloud Loop)...")
+    print("🚀 Anti Gravity Den Engine v10.3 Regulatory Clarity Active (Continuous 24/7 Cloud Loop)...")
     try:
         while True:
             run_continuous_quant_hunter()
