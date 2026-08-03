@@ -54,7 +54,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v16.2 Dynamic Margin Sizing Active 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v16.3 Clean Payload Active 24/7")
 
     def log_message(self, format, *args):
         return
@@ -69,7 +69,7 @@ def run_continuous_quant_hunter():
     universe = DynamicMarketUniverse.get_full_hunting_universe()
     learned_weights = SelfLearningQuantEngine.get_learned_weights()
 
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v16.2 DYNAMIC MARGIN SIZING | Scanning {len(universe)} Global Assets for Mathematically Exact Leverage Setups...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v16.3 ULTRA-CLEAN PAYLOAD | Scanning {len(universe)} Global Assets...")
 
     # Active Position Cap (7 Positions)
     active_positions = monitor.load_positions()
@@ -164,53 +164,46 @@ def run_continuous_quant_hunter():
             lev_meta = ExchangeLeverageEngine.get_calibrated_leverage(ticker, raw_ideal_leverage)
             chosen_leverage = lev_meta["recommended_leverage"]
 
-            # Dynamic Margin Sizing Formula: Position Notional = Target Risk / SL_Pct
+            # Dynamic Margin Sizing
             target_notional = target_risk_usd / max(sl_pct, 0.0005)
             calculated_margin = round(target_notional / chosen_leverage, 2)
-            
-            # Cap margin at safe 20% of account ($200 USDT)
             final_margin = min(max(calculated_margin, 20.0), 200.0)
             actual_notional = final_margin * chosen_leverage
             
-            # Exact Math Returns
             exact_loss_usd = round(actual_notional * sl_pct, 2)
             exact_gain_usd = round(actual_notional * tp_pct, 2)
             roi_gain_pct = round((exact_gain_usd / final_margin) * 100, 1)
 
+            # REDESIGNED ULTRA-CLEAN PAYLOAD (ALL EXECUTION DATA FRONT & CENTER AT TOP!)
             alert_msg = f"""
-🎯 **DEN ENGINE v16.2 EXACT SURE-SHOT SIGNAL: {ticker}** 🎯
-━━━━━━━━━━━━━━━━━━━━━━━━
-• **Asset:** `{ticker}` ({sector})
-• **Regime:** `{regime_meta['regime']}` (Vol Expansion: `{regime_meta['vol_expansion_ratio']}x`)
-• **Primary Exchange:** `{lev_meta['primary_exchange']}`
-• **Est. Trade Duration:** `{duration_meta['formatted_label']}` ⏱️
-• **Account Equity:** `${ACCOUNT_BALANCE:,.2f} USDT`
+🎯 **SURE-SHOT SIGNAL: {ticker}** 🎯
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚡ **EXECUTION DATA (ENTRY CHEATSHEET)**
+• **Asset & Exchange:** `{ticker}` ({lev_meta['primary_exchange']})
 • **Direction:** `{direction}` 🚀
-• **Model Win Rate:** `{signal['win_rate']*100:.1f}%` | **EV:** `+{signal['expected_value']:.2f}`
-
-🧠 **INSTITUTIONAL QUANT DRIVERS**
-• **US Regulatory Status:** `{regulatory_meta['regulatory_status']}`
-• **Taker Buy Orderflow:** `{orderflow['buy_ratio']}%` (Buying Influx)
-• **Market Shield:** `{shield_meta['status']}` (Clean Orderflow)
-• **8h Funding Rate:** `{funding_meta['funding_pct']}%` ({funding_meta['status']})
-• **Volume POC:** `${poc_meta['poc']:,.2f}` (Aligned: `{direction}`)
-• **VWAP Benchmark:** `${signal['vwap']:,.2f}` (Aligned: `{direction}`)
-
-⚡ **EXACT MATHEMATICAL EXECUTION ({lev_meta['primary_exchange']} Isolated)**
 • **Entry Price:** `${entry:,.2f}`
-• **Stop Loss (SL):** `${sl:,.2f}` (-{sl_pct*100:.2f}%)
 • **Take Profit (TP):** `${tp:,.2f}` (+{tp_pct*100:.2f}%)  <-- SINGLE TP
-• **Recommended Leverage:** `{chosen_leverage}x Isolated` (Max: `{lev_meta['max_exchange_leverage']}x`)
-• **Adjusted Margin:** `${final_margin:,.2f} USDT` (Notional: `${actual_notional:,.2f}`)
-• **Exact Hard Risk (SL Exit):** `${exact_loss_usd:,.2f} USDT` (-{exact_loss_usd/ACCOUNT_BALANCE*100:.1f}% Equity)
-• **Exact Potential Gain (TP Exit):** `${exact_gain_usd:,.2f} USDT` (+{roi_gain_pct}% Margin ROI / +{exact_gain_usd/ACCOUNT_BALANCE*100:.1f}% Equity)
-━━━━━━━━━━━━━━━━━━━━━━━━
-[✓] Dynamic Margin Sizing & Exact Profit/Loss Math Applied
-[✓] Bitunix & Weex Leverage Matrix Calibrated
+• **Stop Loss (SL):** `${sl:,.2f}` (-{sl_pct*100:.2f}%)
+• **Leverage:** `{chosen_leverage}x Isolated` (Max: `{lev_meta['max_exchange_leverage']}x`)
+• **Required Margin:** `${final_margin:,.2f} USDT` (Notional: `${actual_notional:,.2f}`)
+• **Est. Trade Horizon:** `{duration_meta['formatted_label']}` ⏱️
+• **Hard Risk (Loss):** `-${exact_loss_usd:,.2f} USDT` (-{exact_loss_usd/ACCOUNT_BALANCE*100:.1f}% Equity)
+• **Target Gain (Win):** `+${exact_gain_usd:,.2f} USDT` (+{roi_gain_pct}% Margin ROI)
+
+🧠 **QUANT ANALYSIS & DRIVERS**
+• **Model Win Rate:** `{signal['win_rate']*100:.1f}%` (EV: `+{signal['expected_value']:.2f}`)
+• **Market Regime:** `{regime_meta['regime']}` (Vol Expansion: `{regime_meta['vol_expansion_ratio']}x`)
+• **Taker Buy Orderflow:** `{orderflow['buy_ratio']}%` (Buying Influx)
+• **Anti-Manipulation:** `{shield_meta['status']}`
+• **US Regulatory Status:** `{regulatory_meta['regulatory_status']}`
+• **Volume POC / VWAP:** `${poc_meta['poc']:,.2f}` / `${signal['vwap']:,.2f}` (Aligned: `{direction}`)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[✓] Dynamic Margin Sizing & Exact Return Math
+[✓] Ultra-Clean Fast Execution Format
             """
             telegram.send_alert(alert_msg)
             SignalCooldownEngine.record_signal_sent(ticker)
-            print(f"[✓] v16.2 EXACT SIGNAL DISPATCHED FOR {ticker}")
+            print(f"[✓] v16.3 CLEAN SIGNAL DISPATCHED FOR {ticker}")
 
             positions = monitor.load_positions()
             positions.append({
@@ -229,7 +222,7 @@ def run_continuous_quant_hunter():
 
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
-    print("🚀 Anti Gravity Den Engine v16.2 Dynamic Margin Active (Continuous 24/7 Cloud Loop)...")
+    print("🚀 Anti Gravity Den Engine v16.3 Clean Payload Active (Continuous 24/7 Cloud Loop)...")
     try:
         while True:
             run_continuous_quant_hunter()
