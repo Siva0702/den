@@ -54,7 +54,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v16.3 Clean Payload Active 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v17.0 Bitunix & Weex Native Active 24/7")
 
     def log_message(self, format, *args):
         return
@@ -69,7 +69,7 @@ def run_continuous_quant_hunter():
     universe = DynamicMarketUniverse.get_full_hunting_universe()
     learned_weights = SelfLearningQuantEngine.get_learned_weights()
 
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v16.3 ULTRA-CLEAN PAYLOAD | Scanning {len(universe)} Global Assets...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v17.0 BITUNIX & WEEX NATIVE | Scanning {len(universe)} Global Assets on Native Exchange Feeds...")
 
     # Active Position Cap (7 Positions)
     active_positions = monitor.load_positions()
@@ -174,11 +174,11 @@ def run_continuous_quant_hunter():
             exact_gain_usd = round(actual_notional * tp_pct, 2)
             roi_gain_pct = round((exact_gain_usd / final_margin) * 100, 1)
 
-            # REDESIGNED ULTRA-CLEAN PAYLOAD (ALL EXECUTION DATA FRONT & CENTER AT TOP!)
+            # REDESIGNED ULTRA-CLEAN PAYLOAD (100% BITUNIX / WEEX NATIVE PRICES)
             alert_msg = f"""
 🎯 **SURE-SHOT SIGNAL: {ticker}** 🎯
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚡ **EXECUTION DATA (ENTRY CHEATSHEET)**
+⚡ **EXECUTION DATA (BITUNIX & WEEX CHEATSHEET)**
 • **Asset & Exchange:** `{ticker}` ({lev_meta['primary_exchange']})
 • **Direction:** `{direction}` 🚀
 • **Entry Price:** `${entry:,.2f}`
@@ -198,12 +198,12 @@ def run_continuous_quant_hunter():
 • **US Regulatory Status:** `{regulatory_meta['regulatory_status']}`
 • **Volume POC / VWAP:** `${poc_meta['poc']:,.2f}` / `${signal['vwap']:,.2f}` (Aligned: `{direction}`)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[✓] 100% Bitunix & Weex Direct REST Feed Synchronized
 [✓] Dynamic Margin Sizing & Exact Return Math
-[✓] Ultra-Clean Fast Execution Format
             """
             telegram.send_alert(alert_msg)
             SignalCooldownEngine.record_signal_sent(ticker)
-            print(f"[✓] v16.3 CLEAN SIGNAL DISPATCHED FOR {ticker}")
+            print(f"[✓] v17.0 BITUNIX/WEEX NATIVE SIGNAL DISPATCHED FOR {ticker}")
 
             positions = monitor.load_positions()
             positions.append({
@@ -222,7 +222,7 @@ def run_continuous_quant_hunter():
 
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
-    print("🚀 Anti Gravity Den Engine v16.3 Clean Payload Active (Continuous 24/7 Cloud Loop)...")
+    print("🚀 Anti Gravity Den Engine v17.0 Bitunix & Weex Native Active (Continuous 24/7 Cloud Loop)...")
     try:
         while True:
             run_continuous_quant_hunter()
