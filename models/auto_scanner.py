@@ -21,6 +21,7 @@ from indicators.orderflow_imbalance import InstitutionalOrderFlowEngine
 from indicators.anti_manipulation import InstitutionalAntiManipulationShield
 from indicators.correlation_defense import CorrelationDefenseEngine
 from indicators.regime_classifier import MarketRegimeClassifier
+from indicators.exchange_leverage import ExchangeLeverageEngine
 from portfolio.capital_defense import CapitalDefenseShield
 from alerts.signal_cooldown import SignalCooldownEngine
 from ml.self_learning import SelfLearningQuantEngine
@@ -53,7 +54,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v15.2 Multi-Position Active & Operational 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v16.0 Exchange Leverage Calibrated 24/7")
 
     def log_message(self, format, *args):
         return
@@ -68,9 +69,9 @@ def run_continuous_quant_hunter():
     universe = DynamicMarketUniverse.get_full_hunting_universe()
     learned_weights = SelfLearningQuantEngine.get_learned_weights()
 
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v15.2 MULTI-POSITION | Scanning {len(universe)} Global Assets (Cap: 7 Concurrent Trades)...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v16.0 EXCHANGE CALIBRATED | Scanning {len(universe)} Global Assets for Bitunix & Weex Calibrated Setups...")
 
-    # Upgraded Active Position Cap to 7 Positions!
+    # Active Position Cap (7 Positions)
     active_positions = monitor.load_positions()
     if len(active_positions) >= 7:
         print(f"[🛡️] Multi-Position Cap Reached ({len(active_positions)} active trades). Scanner pausing new signal generation.")
@@ -114,7 +115,7 @@ def run_continuous_quant_hunter():
         if is_real:
             monitor.check_active_positions(ticker, current_price, sm, structure_flipped)
 
-        # 2. Strict 4-Hour Ticker Cooldown Audit (Prevents Duplicate Spam on SAME Ticker)
+        # 2. Strict 4-Hour Ticker Cooldown Audit
         if not SignalCooldownEngine.can_send_signal(ticker):
             continue
 
@@ -161,13 +162,17 @@ def run_continuous_quant_hunter():
             
             notional_position = dollars_at_risk / max(sl_pct, 0.001)
             suggested_margin = 100.0
-            suggested_leverage = max(round(notional_position / suggested_margin), 15)
+            raw_leverage = max(round(notional_position / suggested_margin), 15)
+
+            # Bitunix & Weex Leverage Calibration
+            lev_meta = ExchangeLeverageEngine.get_calibrated_leverage(ticker, raw_leverage)
 
             alert_msg = f"""
-🎯 **DEN ENGINE v15.2 SURE-SHOT SIGNAL: {ticker}** 🎯
+🎯 **DEN ENGINE v16.0 SURE-SHOT SIGNAL: {ticker}** 🎯
 ━━━━━━━━━━━━━━━━━━━━━━━━
 • **Asset:** `{ticker}` ({sector})
 • **Regime:** `{regime_meta['regime']}` (Vol Expansion: `{regime_meta['vol_expansion_ratio']}x`)
+• **Primary Exchange:** `{lev_meta['primary_exchange']}`
 • **Est. Trade Duration:** `{duration_meta['formatted_label']}` ⏱️
 • **Account Equity:** `${ACCOUNT_BALANCE:,.2f} USDT`
 • **Direction:** `{direction}` 🚀
@@ -181,21 +186,21 @@ def run_continuous_quant_hunter():
 • **Volume POC:** `${poc_meta['poc']:,.2f}` (Aligned: `{direction}`)
 • **VWAP Benchmark:** `${signal['vwap']:,.2f}` (Aligned: `{direction}`)
 
-⚡ **HIGH-LEVERAGE EXECUTION (Bitunix Isolated)**
+⚡ **CALIBRATED EXECUTION ({lev_meta['primary_exchange']} Isolated)**
 • **Entry Price:** `${entry:,.2f}`
 • **Stop Loss (SL):** `${sl:,.2f}` (-{sl_pct*100:.2f}%)
 • **Take Profit (TP):** `${tp:,.2f}` (+{tp_pct*100:.2f}%)  <-- SINGLE TP
-• **Recommended Leverage:** `{suggested_leverage}x Isolated`
+• **Recommended Leverage:** `{lev_meta['recommended_leverage']}x Isolated` (Max: `{lev_meta['max_exchange_leverage']}x`)
 • **Required Margin:** `${suggested_margin:,.2f} USDT` (10% Buffer)
 • **Hard Risk (SL Exit):** `${dollars_at_risk:,.2f} USDT` ({dollars_at_risk/ACCOUNT_BALANCE*100:.1f}%)
 • **Potential Gain (TP Exit):** `${potential_gain:,.2f} USDT` (+{potential_gain/ACCOUNT_BALANCE*100:.1f}% Account Gain)
 ━━━━━━━━━━━━━━━━━━━━━━━━
-[✓] Multi-Position Capacity Active (Up to 7 Positions)
-[✓] 4-Hour Per-Ticker Cooldown Enforced (Zero Duplicate Spam)
+[✓] Bitunix & Weex Leverage Matrix Calibrated
+[✓] 4-Hour Per-Ticker Cooldown Enforced (Zero Spam)
             """
             telegram.send_alert(alert_msg)
             SignalCooldownEngine.record_signal_sent(ticker)
-            print(f"[✓] v15.2 SIGNAL DISPATCHED FOR {ticker}")
+            print(f"[✓] v16.0 SIGNAL DISPATCHED FOR {ticker}")
 
             positions = monitor.load_positions()
             positions.append({
@@ -214,7 +219,7 @@ def run_continuous_quant_hunter():
 
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
-    print("🚀 Anti Gravity Den Engine v15.2 Multi-Position Active (Continuous 24/7 Cloud Loop)...")
+    print("🚀 Anti Gravity Den Engine v16.0 Exchange Calibrated Active (Continuous 24/7 Cloud Loop)...")
     try:
         while True:
             run_continuous_quant_hunter()
