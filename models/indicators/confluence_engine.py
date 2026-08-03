@@ -2,22 +2,23 @@
 import pandas as pd
 import numpy as np
 from indicators.institutional_smc import InstitutionalSMCEngine
+from indicators.orderflow_imbalance import InstitutionalOrderFlowEngine
 
 class SureShotConfluenceEngine:
     @staticmethod
     def evaluate_setup(
         ohlcv_df: pd.DataFrame, 
         sentiment_multiplier: float, 
-        base_win_rate: float = 0.58
+        base_win_rate: float = 0.60
     ) -> dict:
         """
-        Den Engine v5.0 Apex Sure-Shot Confluence Engine.
-        Requires:
+        Den Engine v10.0 Quantum Sure-Shot Confluence Engine.
+        Hyper-Strict Gating:
         1. Market Structure Break (BOS / CHoCH)
-        2. Institutional Order Block (OB) or Fair Value Gap (FVG) Retest
-        3. VWAP Trend Alignment (Longs > VWAP, Shorts < VWAP)
-        4. Sentiment Multiplier Sm >= 1.15 (Bullish) or <= 0.85 (Bearish)
-        5. Apex Gate: Win Rate W >= 70% & EV >= +0.40
+        2. Taker Buy Order Flow Imbalance >= 60%
+        3. Institutional Order Block (OB) or Fair Value Gap (FVG) Retest
+        4. VWAP Trend Alignment (Longs > VWAP, Shorts < VWAP)
+        5. Win Rate W >= 78% & EV >= +0.55
         """
         df = ohlcv_df.copy()
         df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
@@ -43,8 +44,9 @@ class SureShotConfluenceEngine:
 
         latest = df.iloc[-1]
         
-        # SMC Structure Analysis
+        # SMC & Order Flow Analysis
         smc = InstitutionalSMCEngine.analyze_smc_structure(df)
+        orderflow = InstitutionalOrderFlowEngine.analyze_orderflow(df)
 
         # 1. Structural Break Checks (BOS / CHoCH)
         bullish_bos = latest['close'] > df['high'].iloc[-15:-2].max()
@@ -54,20 +56,21 @@ class SureShotConfluenceEngine:
         above_vwap = latest['close'] > latest['vwap']
         below_vwap = latest['close'] < latest['vwap']
 
-        # 3. Apex Alignment Criteria
-        is_bullish = (bullish_bos or smc['bullish_ob'] or smc['liquidity_sweep_low']) and \
-                     latest['ema_20'] > latest['ema_50'] and above_vwap and sentiment_multiplier >= 1.12
+        # 3. Quantum Alignment Criteria
+        is_bullish = (bullish_bos or smc['bullish_ob']) and orderflow['is_aggressive_buying'] and \
+                     latest['ema_20'] > latest['ema_50'] and above_vwap and sentiment_multiplier >= 1.10
                      
-        is_bearish = (bearish_bos or smc['bearish_ob'] or smc['liquidity_sweep_high']) and \
-                     latest['ema_20'] < latest['ema_50'] and below_vwap and sentiment_multiplier <= 0.88
+        is_bearish = (bearish_bos or smc['bearish_ob']) and orderflow['is_aggressive_selling'] and \
+                     latest['ema_20'] < latest['ema_50'] and below_vwap and sentiment_multiplier <= 0.90
 
-        # 4. Apex Adjusted Win Rate & EV Calculation
-        adjusted_win_rate = min(max(base_win_rate * sentiment_multiplier, 0.40), 0.88)
+        # 4. Quantum Adjusted Win Rate & EV Calculation
+        effective_mult = sentiment_multiplier * orderflow['orderflow_score']
+        adjusted_win_rate = min(max(base_win_rate * effective_mult, 0.45), 0.88)
         reward_to_risk = 3.0
         ev = (adjusted_win_rate * reward_to_risk) - (1.0 - adjusted_win_rate)
 
-        # APEX GATE: Requires Win Rate >= 68.0% AND EV >= +0.30
-        is_sure_shot = (is_bullish or is_bearish) and (adjusted_win_rate >= 0.68) and (ev >= 0.30)
+        # QUANTUM GATE: Requires Win Rate >= 78.0% AND EV >= +0.55
+        is_sure_shot = (is_bullish or is_bearish) and (adjusted_win_rate >= 0.78) and (ev >= 0.55)
 
         fvg_str = "BULLISH FVG" if smc['bullish_fvg'] else ("BEARISH FVG" if smc['bearish_fvg'] else "SMC OB ZONE")
 
