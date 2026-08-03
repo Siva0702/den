@@ -20,8 +20,7 @@ pip install -r requirements.txt
 # 3. Write Environment Credentials if missing
 if [ ! -f ".env" ]; then
     cat << 'EOF' > .env
-TELEGRAM_BOT_TOKEN=8847828896:AAFcTqjJGe6VN6mbPHcB1QTlvkpQxhb5ntI
-TELEGRAM_CHAT_ID=7347569157
+# Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in environment variables or .env file
 EOF
     echo "[✓] Environment credentials created in .env"
 fi
