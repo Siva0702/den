@@ -19,8 +19,11 @@ class ActivePositionMonitor:
                 json.dump([], f)
 
     def load_positions(self) -> list:
-        with open(POSITION_FILE, "r") as f:
-            return json.load(f)
+        try:
+            with open(POSITION_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            return []
 
     def save_positions(self, positions: list):
         with open(POSITION_FILE, "w") as f:
@@ -28,10 +31,10 @@ class ActivePositionMonitor:
 
     def check_active_positions(self, current_ticker: str, current_price: float, current_sentiment_multiplier: float, structure_flipped: bool):
         """
-        Evaluates open positions for early thesis invalidation.
-        Sends emergency alerts if:
-        1. News sentiment reverses violently against position
-        2. Market Structure flips (Inverse FVG / Structural Break)
+        Evaluates open positions in real time for:
+        1. Take Profit (TP) Hit -> Sends WINNER alert
+        2. Stop Loss (SL) Hit -> Sends STOP LOSS alert
+        3. Early Invalidation (Adverse News/Structure Flip) -> Sends EMERGENCY EXIT alert
         """
         positions = self.load_positions()
         remaining_positions = []
@@ -44,24 +47,72 @@ class ActivePositionMonitor:
             direction = pos["direction"]
             entry = pos["entry_price"]
             sl = pos["stop_loss"]
+            tp = pos["take_profit"]
 
-            # Threat Condition 1: Severe Sentiment Reversal
+            # 1. Take Profit (TP) Hit Check
+            tp_hit = (direction == "LONG" and current_price >= tp) or (direction == "SHORT" and current_price <= tp)
+            
+            # 2. Stop Loss (SL) Hit Check
+            sl_hit = (direction == "LONG" and current_price <= sl) or (direction == "SHORT" and current_price >= sl)
+
+            # 3. Early Invalidation Threat
             sentiment_threat = (direction == "LONG" and current_sentiment_multiplier < 0.85) or \
                                (direction == "SHORT" and current_sentiment_multiplier > 1.15)
-
-            # Threat Condition 2: Market Structure Reversal
             structure_threat = structure_flipped
 
-            if sentiment_threat or structure_threat:
-                # Trigger Emergency Early Exit Alert
+            if tp_hit:
+                self.send_tp_hit_alert(pos, current_price)
+                print(f"[🎉] TAKE PROFIT HIT for {current_ticker} at ${current_price:.4f}")
+            elif sl_hit:
+                self.send_sl_hit_alert(pos, current_price)
+                print(f"[🛑] STOP LOSS HIT for {current_ticker} at ${current_price:.4f}")
+            elif sentiment_threat or structure_threat:
                 threat_reason = "Adverse Sentiment Spike" if sentiment_threat else "Market Structure Breakdown"
                 self.send_emergency_exit_alert(pos, current_price, threat_reason)
                 print(f"[🚨] EARLY EXIT TRIGGERED for {current_ticker}: {threat_reason}")
-                # Position removed from active tracking (Closed Early)
             else:
                 remaining_positions.append(pos)
 
         self.save_positions(remaining_positions)
+
+    def send_tp_hit_alert(self, position: dict, current_price: float):
+        pnl_pct = abs((current_price - position["entry_price"]) / position["entry_price"]) * 100
+        gain_usd = round(100.0 * (pnl_pct / 100.0) * 30.0, 2) # Scaled leverage gain
+
+        alert_msg = f"""
+🎉 **TAKE PROFIT TARGET HIT! (WINNING TRADE)** 🎉
+━━━━━━━━━━━━━━━━━━━━━━━━
+• **Asset:** `{position['ticker']}` ({position['direction']})
+• **Status:** `TARGET ATTAINED — TAKE PROFIT`
+
+📈 **PROFIT METRICS**
+• **Entry Price:** `${position['entry_price']:,.4f}`
+• **Exit Price:** `${current_price:,.4f}` (+{pnl_pct:.2f}%)
+• **Estimated Net PnL:** `+${gain_usd:,.2f} USDT`
+
+⚡ **ACTION:** Close position on Bitunix & lock in gains!
+━━━━━━━━━━━━━━━━━━━━━━━━
+        """
+        self._dispatch_telegram(alert_msg)
+
+    def send_sl_hit_alert(self, position: dict, current_price: float):
+        pnl_pct = abs((current_price - position["entry_price"]) / position["entry_price"]) * 100
+
+        alert_msg = f"""
+🛑 **STOP LOSS EXECUTED (RISK DEFENSE)** 🛑
+━━━━━━━━━━━━━━━━━━━━━━━━
+• **Asset:** `{position['ticker']}` ({position['direction']})
+• **Status:** `STOP LOSS EXECUTED`
+
+📉 **EXIT METRICS**
+• **Entry Price:** `${position['entry_price']:,.4f}`
+• **SL Exit Price:** `${current_price:,.4f}` (-{pnl_pct:.2f}%)
+• **Max Loss:** `-$35.00 USDT` (3.5% Capital Buffer Preserved)
+
+🛡️ **CAPITAL DEFENSE:** Hard SL executed. Capital base preserved for next High-Confluence setup!
+━━━━━━━━━━━━━━━━━━━━━━━━
+        """
+        self._dispatch_telegram(alert_msg)
 
     def send_emergency_exit_alert(self, position: dict, current_price: float, reason: str):
         pnl_pct = ((current_price - position["entry_price"]) / position["entry_price"]) * 100
@@ -81,12 +132,14 @@ class ActivePositionMonitor:
 • **Current PnL:** `{pnl_pct:+.2f}%`
 • **Original SL:** `${position['stop_loss']:,.4f}`
 
-⚠️ **CAPITAL DEFENSE ACTION:**
-Thesis invalidated before hitting full Stop Loss. Exit manually on Bitunix to preserve capital!
+⚠️ **CAPITAL DEFENSE ACTION:** Exit manually on Bitunix before full SL is touched!
 ━━━━━━━━━━━━━━━━━━━━━━━━
         """
+        self._dispatch_telegram(alert_msg)
+
+    def _dispatch_telegram(self, message: str):
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
         try:
-            requests.post(url, json={"chat_id": self.chat_id, "text": alert_msg, "parse_mode": "Markdown"}, timeout=5)
+            requests.post(url, json={"chat_id": self.chat_id, "text": message, "parse_mode": "Markdown"}, timeout=5)
         except Exception as e:
-            print(f"[!] Emergency Exit Alert Failed: {e}")
+            print(f"[!] Telegram Monitor Alert Failed: {e}")

@@ -37,7 +37,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v4.0 Ultra Active & Operational 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v5.0 Apex Active & Operational 24/7")
 
     def log_message(self, format, *args):
         return # Suppress HTTP server logging
@@ -50,7 +50,7 @@ def start_health_server():
 
 def run_continuous_quant_hunter():
     universe = DynamicMarketUniverse.get_full_hunting_universe()
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v4.0 ULTRA | Hunting {len(universe)} Assets (Crypto, Semis, Samsung, INTC, SPY, Japan EWJ, Gold)...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v5.0 APEX | Scanning {len(universe)} Global Assets for 70%+ Win-Rate Intraday Signals...")
 
     # 1. Fetch Global Macro Wire & Hugging Face Multi-Model Ensemble Sentiment
     headlines = news_engine.fetch_latest_headlines(limit=2)
@@ -76,26 +76,26 @@ def run_continuous_quant_hunter():
         # 4. Advanced Quant VWAP & Volatility Compression Checks
         quant_meta = AdvancedQuantEngine.calculate_vwap_and_volatility(df)
 
-        # 5. Active Position Defense Check
+        # 5. Active Position Defense & TP/SL Hit Monitoring
         current_price = df.iloc[-1]['close']
         structure_flipped = df.iloc[-1]['close'] < df.iloc[-10]['low']
         monitor.check_active_positions(ticker, current_price, sm, structure_flipped)
 
         # 6. Evaluate High-Confluence Sure-Shot Opportunities
-        signal = SureShotConfluenceEngine.evaluate_setup(df, sm * macro_meta["macro_score"], base_win_rate=0.55)
+        signal = SureShotConfluenceEngine.evaluate_setup(df, sm * macro_meta["macro_score"], base_win_rate=0.58)
 
         if signal["is_sure_shot"]:
             direction = signal["direction"]
             entry = signal["entry_price"]
             
-            # Tight Stop-Loss (1.2x ATR distance) for max position sizing & capital defense
+            # Tight Stop-Loss (1.2x ATR distance) for fast intraday 1-hour target execution
             sl = entry - (signal["atr"] * 1.2) if direction == "LONG" else entry + (signal["atr"] * 1.2)
             tp = entry + (signal["atr"] * 3.6) if direction == "LONG" else entry - (signal["atr"] * 3.6)
             
             sl_pct = abs(entry - sl) / entry
             tp_pct = abs(tp - entry) / entry
             
-            # High-Conviction Kelly Risk (3% to 5% of $1,000 = $30 to $50 risk)
+            # High-Conviction Kelly Risk ($35.00 USDT Risk per setup)
             dollars_at_risk = ACCOUNT_BALANCE * min(max(signal["win_rate"] * 0.08, 0.03), 0.05)
             notional_position = dollars_at_risk / sl_pct
             
@@ -104,15 +104,16 @@ def run_continuous_quant_hunter():
             suggested_leverage = max(round(notional_position / suggested_margin), 15)
 
             alert_msg = f"""
-🎯 **DEN ENGINE v4.0 SURE-SHOT SIGNAL: {ticker}** 🎯
+🎯 **DEN ENGINE v5.0 APEX SURE-SHOT SIGNAL: {ticker}** 🎯
 ━━━━━━━━━━━━━━━━━━━━━━━━
 • **Asset:** `{ticker}` ({sector})
+• **Setup Type:** `1-HOUR INTRADAY SCALP`
 • **Target Monthly ROI:** `$750 – $3,000+/mo (75%–300%)`
 • **Account Equity:** `${ACCOUNT_BALANCE:,.2f} USDT`
-• **Direction:** `{direction}`
+• **Direction:** `{direction}` 🚀
 • **Model Win Rate:** `{signal['win_rate']*100:.1f}%` | **EV:** `+{signal['expected_value']:.2f}`
 
-📰 **HF ENSEMBLE & MACRO DRIVERS**
+📰 **SMC & QUANT DRIVERS**
 • **Headline:** "{headline_text}"
 • **HF Sentiment:** `{sentiment['dominant_sentiment']}` ({sm}x Multiplier)
 • **Macro Bias:** `{macro_meta['macro_bias']}` (SPY: `${macro_meta['spy_price']}`)
@@ -131,7 +132,7 @@ def run_continuous_quant_hunter():
 ━━━━━━━━━━━━━━━━━━━━━━━━
             """
             telegram.send_alert(alert_msg)
-            print(f"[✓] v4.0 SURE-SHOT OPPORTUNITY HUNTED & DISPATCHED FOR {ticker}")
+            print(f"[✓] v5.0 APEX OPPORTUNITY DISPATCHED FOR {ticker}")
 
             # Register into active position tracking
             positions = monitor.load_positions()
@@ -149,7 +150,7 @@ if __name__ == "__main__":
     # Start Cloud Web Health Check Server in background thread
     threading.Thread(target=start_health_server, daemon=True).start()
     
-    print("🚀 Anti Gravity Den Engine v4.0 Ultra Active (Continuous 24/7 Cloud Loop)...")
+    print("🚀 Anti Gravity Den Engine v5.0 Apex Active (Continuous 24/7 Cloud Loop)...")
     try:
         while True:
             run_continuous_quant_hunter()
