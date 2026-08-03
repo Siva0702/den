@@ -1,0 +1,14 @@
+[Unit]
+Description=Anti Gravity Den 24/7 Automated Signal Scanner
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/den
+ExecStart=/home/ubuntu/den/venv/bin/python3 models/auto_scanner.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
