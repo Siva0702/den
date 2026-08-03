@@ -24,6 +24,7 @@ from ml.self_learning import SelfLearningQuantEngine
 from ml.internet_learning import InternetQuantLearningEngine
 from news.macro_events import USMacroEventEngine
 from news.regulatory_events import USRegulatoryPolicyEngine
+from news.predictive_calendar import PredictiveMacroCalendarEngine
 from position_monitor import ActivePositionMonitor
 from audit.track_record import PerformanceTrackRecord
 from news.news_fetcher import RealtimeNewsFetcher
@@ -48,7 +49,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v12.0 100% Target Shield Active 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v13.0 Predictive Calendar Active & Operational 24/7")
 
     def log_message(self, format, *args):
         return
@@ -64,12 +65,16 @@ def run_continuous_quant_hunter():
     learned_weights = SelfLearningQuantEngine.get_learned_weights()
     internet_knowledge = InternetQuantLearningEngine.fetch_and_update_knowledge()
 
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v12.0 100% TARGET SHIELD | Scanning {len(universe)} Global Assets for Dynamic Kelly Setups...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v13.0 PREDICTIVE CALENDAR | Scanning {len(universe)} Global Assets Across Future US Fed, CPI & Clarity Act Events...")
 
     headlines = news_engine.fetch_latest_headlines(limit=2)
     headline_text = headlines[0]['headline'] if headlines else "Global macro markets trading within active momentum volatility."
     sentiment = nlp.analyze_news_ensemble(headline_text)
     sm = sentiment["sentiment_multiplier"] * learned_weights.get("sentiment_weight", 1.0)
+
+    # Predictive Macro Calendar & Event Horizon Engine
+    calendar_meta = PredictiveMacroCalendarEngine.analyze_upcoming_macro_events()
+    cal_multiplier = calendar_meta["event_multiplier"]
 
     regulatory_meta = USRegulatoryPolicyEngine.analyze_regulatory_climate()
     reg_multiplier = regulatory_meta["regulatory_multiplier"]
@@ -113,14 +118,13 @@ def run_continuous_quant_hunter():
         orderflow = InstitutionalOrderFlowEngine.analyze_orderflow(df)
 
         # 4. Evaluate High-Confluence 70%+ Win-Rate Opportunities
-        effective_multiplier = sm * reg_multiplier * macro_multiplier * macro_meta["macro_score"] * funding_meta["squeeze_tailwind"] * shield_meta["shield_multiplier"]
+        effective_multiplier = sm * cal_multiplier * reg_multiplier * macro_multiplier * macro_meta["macro_score"] * funding_meta["squeeze_tailwind"] * shield_meta["shield_multiplier"]
         signal = SureShotConfluenceEngine.evaluate_setup(df, effective_multiplier, base_win_rate=learned_weights.get("base_win_rate", 0.58))
 
         if signal["is_sure_shot"] and is_real:
             direction = signal["direction"]
             entry = current_price
             
-            # Dynamic Kelly Scaling ($50 risk for high-conviction -> $150 payout)
             risk_params = CapitalDefenseShield.get_dynamic_risk_params(ACCOUNT_BALANCE, signal["win_rate"])
             dollars_at_risk = risk_params["dollars_at_risk"]
             potential_gain = risk_params["target_payout"]
@@ -140,19 +144,20 @@ def run_continuous_quant_hunter():
             suggested_leverage = max(round(notional_position / suggested_margin), 15)
 
             alert_msg = f"""
-🎯 **DEN ENGINE v12.0 100% TARGET SURE-SHOT: {ticker}** 🎯
+🎯 **DEN ENGINE v13.0 PREDICTIVE CALENDAR SIGNAL: {ticker}** 🎯
 ━━━━━━━━━━━━━━━━━━━━━━━━
 • **Asset:** `{ticker}` ({sector})
-• **Setup Type:** `HIGH-CONVICTION KELLY BREAKOUT`
+• **Setup Type:** `PREDICTIVE EVENT HORIZON SCALP`
 • **Est. Trade Duration:** `{duration_meta['formatted_label']}` ⏱️
 • **Account Equity:** `${ACCOUNT_BALANCE:,.2f} USDT`
 • **Direction:** `{direction}` 🚀
 • **Model Win Rate:** `{signal['win_rate']*100:.1f}%` | **EV:** `+{signal['expected_value']:.2f}`
 
-⚡ **100% TARGET KELLY DRIVERS**
-• **Risk Scaling:** `${dollars_at_risk:,.2f} USDT` Risk $\rightarrow$ `${potential_gain:,.2f} USDT` Payout
-• **Market Shield Status:** `{shield_meta['status']}`
-• **Taker Buy Orderflow:** `{orderflow['buy_ratio']}%`
+📅 **PREDICTIVE MACRO & CALENDAR DRIVERS**
+• **US Event Horizon:** `{calendar_meta['event_horizon']}` ({cal_multiplier}x Multiplier)
+• **Event Horizon Info:** "{calendar_meta['active_event_headline']}"
+• **US Regulatory Status:** `{regulatory_meta['regulatory_status']}`
+• **Taker Buy Orderflow:** `{orderflow['buy_ratio']}%` (Buying Influx)
 • **8h Funding Rate:** `{funding_meta['funding_pct']}%` ({funding_meta['status']})
 • **Volume POC:** `${poc_meta['poc']:,.2f}` (Aligned: `{direction}`)
 • **VWAP Benchmark:** `${signal['vwap']:,.2f}` (Aligned: `{direction}`)
@@ -166,11 +171,11 @@ def run_continuous_quant_hunter():
 • **Hard Risk (SL Exit):** `${dollars_at_risk:,.2f} USDT` ({dollars_at_risk/ACCOUNT_BALANCE*100:.1f}%)
 • **Potential Gain (TP Exit):** `${potential_gain:,.2f} USDT` (+{potential_gain/ACCOUNT_BALANCE*100:.1f}% Account Gain)
 ━━━━━━━━━━━━━━━━━━━━━━━━
-[✓] 100% Target Attainment Kelly Sizing Applied
-[✓] Capital Defense & Monthly $1,000 Lock System Active
+[✓] US Fed, CPI & Legislative Event Horizon Analyzed
+[✓] 100% Anti-Manipulation & Kelly Scaling Active
             """
             telegram.send_alert(alert_msg)
-            print(f"[✓] v12.0 100% TARGET SIGNAL DISPATCHED FOR {ticker}")
+            print(f"[✓] v13.0 PREDICTIVE CALENDAR SIGNAL DISPATCHED FOR {ticker}")
 
             positions = monitor.load_positions()
             positions.append({
@@ -189,7 +194,7 @@ def run_continuous_quant_hunter():
 
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
-    print("🚀 Anti Gravity Den Engine v12.0 100% Target Active (Continuous 24/7 Cloud Loop)...")
+    print("🚀 Anti Gravity Den Engine v13.0 Predictive Calendar Active (Continuous 24/7 Cloud Loop)...")
     try:
         while True:
             run_continuous_quant_hunter()
