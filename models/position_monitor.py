@@ -35,14 +35,6 @@ class ActivePositionMonitor:
             json.dump(positions, f, indent=2)
 
     def check_active_positions(self, current_ticker: str, current_price: float, current_sentiment_multiplier: float, structure_flipped: bool):
-        """
-        Event-Driven Smart Notifications Engine:
-        Only alerts when significant milestone events occur:
-        1. TP Hit -> WINNER alert
-        2. SL Hit -> RISK DEFENSE alert
-        3. 50% Distance to TP -> MOVE STOP LOSS TO BREAKEVEN alert (Zero Risk!)
-        4. Breaking Bad News / Structure Flip -> EMERGENCY EARLY EXIT alert
-        """
         positions = self.load_positions()
         remaining_positions = []
 
@@ -59,12 +51,10 @@ class ActivePositionMonitor:
             tp_hit = (direction == "LONG" and current_price >= tp) or (direction == "SHORT" and current_price <= tp)
             sl_hit = (direction == "LONG" and current_price <= sl) or (direction == "SHORT" and current_price >= sl)
 
-            # Calculate 50% Progress to TP for Breakeven SL Adjustment
             tp_dist = abs(tp - entry)
             current_dist = (current_price - entry) if direction == "LONG" else (entry - current_price)
             progress_pct = (current_dist / max(tp_dist, 0.0001)) * 100.0
 
-            # Emergency Bad News or Macro Threat
             sentiment_threat = (direction == "LONG" and current_sentiment_multiplier < 0.85) or \
                                (direction == "SHORT" and current_sentiment_multiplier > 1.15)
 
@@ -77,11 +67,11 @@ class ActivePositionMonitor:
                 PerformanceTrackRecord.record_trade_close(current_ticker, current_price, is_win=False, pnl_usd=-35.0)
                 print(f"[🛑] STOP LOSS EXECUTED for {current_ticker} at ${current_price:.2f}")
             elif sentiment_threat or structure_flipped:
-                threat_reason = "Emergency Bad News / Adverse Sentiment Spike" if sentiment_threat else "Market Structure Breakdown"
-                self.send_emergency_exit_alert(pos, current_price, threat_reason)
-                print(f"[🚨] EMERGENCY EARLY EXIT ALERT for {current_ticker}: {threat_reason}")
+                cause = "Adverse Sentiment / Emergency Breaking News Wire" if sentiment_threat else "Market Structure Breakdown (15m Low Violated)"
+                details = "High-volume market sell pressure detected opposing entry direction."
+                self.send_emergency_exit_alert(pos, current_price, cause, details)
+                print(f"[🚨] EMERGENCY EARLY EXIT ALERT for {current_ticker}: {cause}")
             else:
-                # Smart Event Alert: Move Stop-Loss to Breakeven when 50%+ to TP!
                 if progress_pct >= 50.0 and not pos.get("be_alert_sent", False):
                     pos["be_alert_sent"] = True
                     self.send_breakeven_sl_alert(pos, current_price, progress_pct)
@@ -165,19 +155,23 @@ class ActivePositionMonitor:
         """
         self._dispatch_telegram(alert_msg)
 
-    def send_emergency_exit_alert(self, position: dict, current_price: float, reason: str):
+    def send_emergency_exit_alert(self, position: dict, current_price: float, cause: str, details: str):
         alert_msg = f"""
-🚨 **EMERGENCY WARNING: CLOSE POSITION IMMEDIATELY** 🚨
+🚨 **EMERGENCY WARNING: EARLY EXIT SUGGESTED** 🚨
 ━━━━━━━━━━━━━━━━━━━━━━━━
 • **Asset:** `{position['ticker']}` ({position['direction']})
-• **Reason:** `{reason}`
+• **Status:** `CLOSE POSITION IMMEDIATELY`
 
-📉 **CAPITAL DEFENSE ACTION**
+🧠 **ROOT CAUSE ANALYSIS (RCA)**
+• **Primary Cause:** `{cause}`
+• **Microstructure Impact:** `{details}`
+
+📉 **CAPITAL DEFENSE METRICS**
 • **Entry Price:** `${position['entry_price']:,.2f}`
-• **Current Price:** `${current_price:,.2f}`
+• **Current Exit Price:** `${current_price:,.2f}`
 • **Original SL:** `${position['stop_loss']:,.2f}`
 
-⚠️ **ACTION:** Close position manually on Bitunix NOW before SL is touched to save capital!
+⚠️ **ACTION DIRECTIVE:** Close position manually on Bitunix NOW before SL is touched to save capital!
 ━━━━━━━━━━━━━━━━━━━━━━━━
         """
         self._dispatch_telegram(alert_msg)
