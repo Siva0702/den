@@ -18,6 +18,9 @@ load_dotenv()
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8847828896:AAFcTqjJGe6VN6mbPHcB1QTlvkpQxhb5ntI")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "7347569157")
 
+# Target Capital Base: $100 USDT
+ACCOUNT_BALANCE = 100.0
+
 WATCHLIST = [
     {"ticker": "SOL/USDT", "asset_class": "Crypto Futures"},
     {"ticker": "BTC/USDT", "asset_class": "Crypto Futures"},
@@ -31,7 +34,7 @@ news_engine = RealtimeNewsFetcher()
 telegram = TelegramAlertBot(BOT_TOKEN, CHAT_ID)
 
 def run_silent_quant_scan():
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Silent Quant Scan Running...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Silent Quant Scan Running ($100 USDT Account Base)...")
 
     # Fetch global news wire
     headlines = news_engine.fetch_latest_headlines(limit=1)
@@ -55,7 +58,7 @@ def run_silent_quant_scan():
         monitor.check_active_positions(ticker, current_price, sm, structure_flipped)
 
         # 3. Evaluate New Sure-Shot Opportunities
-        signal = SureShotConfluenceEngine.evaluate_setup(df, sm)
+        signal = SureShotConfluenceEngine.evaluate_setup(df, sm, base_win_rate=0.55)
 
         if signal["is_sure_shot"]:
             # Format and send HIGH-CONFLUENCE SIGNAL ONLY
@@ -63,11 +66,21 @@ def run_silent_quant_scan():
             entry = signal["entry_price"]
             sl = entry - (signal["atr"] * 1.5) if direction == "LONG" else entry + (signal["atr"] * 1.5)
             tp = entry + (signal["atr"] * 3.75) if direction == "LONG" else entry - (signal["atr"] * 3.75)
+            
+            sl_pct = abs(entry - sl) / entry
+            dollars_at_risk = ACCOUNT_BALANCE * (signal["win_rate"] * 0.10) # Scaled risk for $100 balance
+            notional_position = dollars_at_risk / sl_pct
+            
+            # Target ~10% margin allocation ($10 USDT) to keep 90% liquid buffer
+            suggested_margin = min(ACCOUNT_BALANCE * 0.10, 10.0) # $10 USDT max margin per trade
+            suggested_leverage = max(round(notional_position / suggested_margin), 5)
+            suggested_leverage = min(suggested_leverage, 20) # Cap at 20x for risk defense
 
             alert_msg = f"""
 🎯 **SURE-SHOT QUANT SIGNAL DETECTED** 🎯
 ━━━━━━━━━━━━━━━━━━━━━━━━
 • **Asset:** `{ticker}` ({item['asset_class']})
+• **Account Equity:** `${ACCOUNT_BALANCE:,.2f} USDT`
 • **Direction:** `{direction}`
 • **Model Win Rate:** `{signal['win_rate']*100:.1f}%` | **EV:** `+{signal['expected_value']:.2f}`
 
@@ -78,9 +91,11 @@ def run_silent_quant_scan():
 
 ⚡ **EXECUTION COMMAND (Bitunix Isolated)**
 • **Entry Price:** `${entry:,.4f}`
-• **Stop Loss:** `${sl:,.4f}`
+• **Stop Loss:** `${sl:,.4f}` (-{sl_pct*100:.2f}%)
 • **Take Profit:** `${tp:,.4f}`
-• **Leverage:** `10x Isolated`
+• **Recommended Leverage:** `{suggested_leverage}x Isolated`
+• **Required Isolated Margin:** `${suggested_margin:,.2f} USDT`
+• **Capital at Risk:** `${dollars_at_risk:,.2f} USDT` ({dollars_at_risk/ACCOUNT_BALANCE*100:.1f}%)
 ━━━━━━━━━━━━━━━━━━━━━━━━
             """
             telegram.send_alert(alert_msg)
@@ -99,7 +114,7 @@ def run_silent_quant_scan():
             monitor.save_positions(positions)
 
 if __name__ == "__main__":
-    print("🚀 Anti Gravity Silent Auto-Scanner Active (5-minute interval)...")
+    print("🚀 Anti Gravity Silent Auto-Scanner Active ($100 USDT Account Base, 5-minute interval)...")
     try:
         while True:
             run_silent_quant_scan()
