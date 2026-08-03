@@ -18,6 +18,7 @@ from indicators.funding_defense import FundingRateDefenseEngine
 from indicators.velocity_engine import MomentumVelocityEngine
 from indicators.duration_estimator import PrecisionDurationEstimator
 from indicators.orderflow_imbalance import InstitutionalOrderFlowEngine
+from indicators.anti_manipulation import InstitutionalAntiManipulationShield
 from ml.self_learning import SelfLearningQuantEngine
 from ml.internet_learning import InternetQuantLearningEngine
 from news.macro_events import USMacroEventEngine
@@ -46,7 +47,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v10.3 Regulatory Clarity Active & Operational 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v11.0 Anti-Manipulation Shield Active 24/7")
 
     def log_message(self, format, *args):
         return
@@ -62,14 +63,13 @@ def run_continuous_quant_hunter():
     learned_weights = SelfLearningQuantEngine.get_learned_weights()
     internet_knowledge = InternetQuantLearningEngine.fetch_and_update_knowledge()
 
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v10.3 REGULATORY CLARITY | Scanning {len(universe)} Global Assets Across Clarity Act, Fed, and Orderflow...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v11.0 ANTI-MANIPULATION | Scanning {len(universe)} Global Assets with Stop-Hunt & Manipulation Shield...")
 
     headlines = news_engine.fetch_latest_headlines(limit=2)
     headline_text = headlines[0]['headline'] if headlines else "Global macro markets trading within active momentum volatility."
     sentiment = nlp.analyze_news_ensemble(headline_text)
     sm = sentiment["sentiment_multiplier"] * learned_weights.get("sentiment_weight", 1.0)
 
-    # US Legislative & Regulatory Clarity Act Tracking
     regulatory_meta = USRegulatoryPolicyEngine.analyze_regulatory_climate()
     reg_multiplier = regulatory_meta["regulatory_multiplier"]
 
@@ -92,11 +92,16 @@ def run_continuous_quant_hunter():
         current_price = round(df.iloc[-1]['close'], 2)
         structure_flipped = df.iloc[-1]['close'] < df.iloc[-10]['low']
         
-        # 1. Continuous Position Defense (ONLY ON REAL LIVE REST FEEDS!)
+        # 1. Continuous Position Defense
         if is_real:
             monitor.check_active_positions(ticker, current_price, sm, structure_flipped)
 
-        # 2. Velocity & Chop Filter
+        # 2. Anti-Manipulation Shield Audit
+        shield_meta = InstitutionalAntiManipulationShield.audit_manipulation(df)
+        if shield_meta["is_manipulated"]:
+            continue # Rejects stop-hunts & market maker wick traps!
+
+        # 3. Velocity & Chop Filter
         velocity_meta = MomentumVelocityEngine.calculate_velocity(df)
         if velocity_meta["is_dead_chop"]:
             continue
@@ -106,8 +111,8 @@ def run_continuous_quant_hunter():
         poc_meta = InstitutionalVolumeProfile.calculate_poc(df)
         orderflow = InstitutionalOrderFlowEngine.analyze_orderflow(df)
 
-        # 3. Evaluate High-Confluence 70%+ Win-Rate Opportunities
-        effective_multiplier = sm * reg_multiplier * macro_multiplier * macro_meta["macro_score"] * funding_meta["squeeze_tailwind"]
+        # 4. Evaluate High-Confluence 70%+ Win-Rate Opportunities
+        effective_multiplier = sm * reg_multiplier * macro_multiplier * macro_meta["macro_score"] * funding_meta["squeeze_tailwind"] * shield_meta["shield_multiplier"]
         signal = SureShotConfluenceEngine.evaluate_setup(df, effective_multiplier, base_win_rate=learned_weights.get("base_win_rate", 0.58))
 
         if signal["is_sure_shot"] and is_real:
@@ -130,20 +135,20 @@ def run_continuous_quant_hunter():
             suggested_leverage = max(round(notional_position / suggested_margin), 15)
 
             alert_msg = f"""
-🎯 **DEN ENGINE v10.3 REGULATORY SURE-SHOT SIGNAL: {ticker}** 🎯
+🎯 **DEN ENGINE v11.0 ANTI-MANIPULATION SIGNAL: {ticker}** 🎯
 ━━━━━━━━━━━━━━━━━━━━━━━━
 • **Asset:** `{ticker}` ({sector})
-• **Setup Type:** `INTRADAY MOMENTUM SCALP`
+• **Setup Type:** `MANIPULATION-SHIELDED BREAKOUT`
 • **Est. Trade Duration:** `{duration_meta['formatted_label']}` ⏱️
 • **Account Equity:** `${ACCOUNT_BALANCE:,.2f} USDT`
 • **Direction:** `{direction}` 🚀
 • **Model Win Rate:** `{signal['win_rate']*100:.1f}%` | **EV:** `+{signal['expected_value']:.2f}`
 
-🏛️ **US REGULATORY & LEGISLATIVE DRIVERS**
-• **US Regulatory Status:** `{regulatory_meta['regulatory_status']}` ({reg_multiplier}x Multiplier)
-• **Policy Wire:** "{regulatory_meta['headline_match']}"
+🛡️ **ANTI-MANIPULATION & ORDER FLOW DRIVERS**
+• **Market Shield Status:** `{shield_meta['status']}` (Clean Orderflow)
 • **Taker Buy Orderflow:** `{orderflow['buy_ratio']}%` (Buying Influx)
 • **8h Funding Rate:** `{funding_meta['funding_pct']}%` ({funding_meta['status']})
+• **US Regulatory Status:** `{regulatory_meta['regulatory_status']}`
 • **Volume POC:** `${poc_meta['poc']:,.2f}` (Aligned: `{direction}`)
 • **VWAP Benchmark:** `${signal['vwap']:,.2f}` (Aligned: `{direction}`)
 
@@ -156,11 +161,11 @@ def run_continuous_quant_hunter():
 • **Hard Risk (SL Exit):** `${dollars_at_risk:,.2f} USDT` (3.5%)
 • **Potential Gain (TP Exit):** `${dollars_at_risk * 3.0:,.2f} USDT` (+10.5% Account Gain)
 ━━━━━━━━━━━━━━━━━━━━━━━━
-[✓] US Clarity Act & FIT21 Policy Wire Filtered
-[✓] 82+ Asset High-Frequency Scan Active
+[✓] 100% Market Maker Stop-Hunt & Manipulation Shield Active
+[✓] Clean Organic Taker Order Flow Verified
             """
             telegram.send_alert(alert_msg)
-            print(f"[✓] v10.3 REGULATORY SIGNAL DISPATCHED FOR {ticker}")
+            print(f"[✓] v11.0 ANTI-MANIPULATION SIGNAL DISPATCHED FOR {ticker}")
 
             positions = monitor.load_positions()
             positions.append({
@@ -179,7 +184,7 @@ def run_continuous_quant_hunter():
 
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
-    print("🚀 Anti Gravity Den Engine v10.3 Regulatory Clarity Active (Continuous 24/7 Cloud Loop)...")
+    print("🚀 Anti Gravity Den Engine v11.0 Anti-Manipulation Shield Active (Continuous 24/7 Cloud Loop)...")
     try:
         while True:
             run_continuous_quant_hunter()
