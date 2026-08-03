@@ -2,6 +2,7 @@
 import json
 import os
 import sys
+import time
 import requests
 
 sys.path.append(os.path.dirname(__file__))
@@ -36,6 +37,7 @@ class ActivePositionMonitor:
     def check_active_positions(self, current_ticker: str, current_price: float, current_sentiment_multiplier: float, structure_flipped: bool):
         positions = self.load_positions()
         remaining_positions = []
+        now_ts = time.time()
 
         for pos in positions:
             if pos["ticker"] != current_ticker:
@@ -50,31 +52,64 @@ class ActivePositionMonitor:
             tp_hit = (direction == "LONG" and current_price >= tp) or (direction == "SHORT" and current_price <= tp)
             sl_hit = (direction == "LONG" and current_price <= sl) or (direction == "SHORT" and current_price >= sl)
 
+            # Emergency Bad News or Macro Threat
             sentiment_threat = (direction == "LONG" and current_sentiment_multiplier < 0.85) or \
                                (direction == "SHORT" and current_sentiment_multiplier > 1.15)
 
             if tp_hit:
                 self.send_tp_hit_alert(pos, current_price)
                 PerformanceTrackRecord.record_trade_close(current_ticker, current_price, is_win=True, pnl_usd=105.0)
-                print(f"[🎉] TAKE PROFIT HIT for {current_ticker} at ${current_price:.2f}")
+                print(f"[🎉] SINGLE TAKE PROFIT HIT for {current_ticker} at ${current_price:.2f}")
             elif sl_hit:
                 self.send_sl_hit_alert(pos, current_price)
                 PerformanceTrackRecord.record_trade_close(current_ticker, current_price, is_win=False, pnl_usd=-35.0)
-                print(f"[🛑] STOP LOSS HIT for {current_ticker} at ${current_price:.2f}")
+                print(f"[🛑] STOP LOSS EXECUTED for {current_ticker} at ${current_price:.2f}")
             elif sentiment_threat or structure_flipped:
-                threat_reason = "Adverse Sentiment Spike" if sentiment_threat else "Market Structure Breakdown"
+                threat_reason = "Emergency Bad News / Adverse Sentiment Spike" if sentiment_threat else "Market Structure Breakdown"
                 self.send_emergency_exit_alert(pos, current_price, threat_reason)
-                print(f"[🚨] EARLY EXIT TRIGGERED for {current_ticker}: {threat_reason}")
+                print(f"[🚨] EMERGENCY EARLY EXIT ALERT for {current_ticker}: {threat_reason}")
             else:
+                # 2-Hour Progress & Momentum Digest (7200 seconds)
+                last_digest = pos.get("last_digest_ts", 0)
+                if (now_ts - last_digest) >= 7200:
+                    pos["last_digest_ts"] = now_ts
+                    self.send_2h_progress_digest(pos, current_price)
                 remaining_positions.append(pos)
 
         self.save_positions(remaining_positions)
+
+    def send_2h_progress_digest(self, position: dict, current_price: float):
+        pnl_pct = ((current_price - position["entry_price"]) / position["entry_price"]) * 100
+        if position["direction"] == "SHORT":
+            pnl_pct = -pnl_pct
+
+        action = "HOLD — TARGET INTACT 🚀" if pnl_pct >= 0 else "HOLD — MONITORING SUPPORT 🛡️"
+        if pnl_pct >= 0.5:
+            action = "HOLD — CONSIDER MOVING STOP TO BREAKEVEN 🔒"
+
+        alert_msg = f"""
+📊 **2-HOUR TRADE PROGRESS & MOMENTUM DIGEST** 📊
+━━━━━━━━━━━━━━━━━━━━━━━━
+• **Asset:** `{position['ticker']}` ({position['direction']})
+• **Current Status:** `{action}`
+
+📈 **LIVE POSITION METRICS**
+• **Entry Price:** `${position['entry_price']:,.2f}`
+• **Current Price:** `${current_price:,.2f}` ({pnl_pct:+.2f}%)
+• **Take Profit Target:** `${position['take_profit']:,.2f}`
+• **Stop Loss:** `${position['stop_loss']:,.2f}`
+
+🧠 **MOMENTUM & DIRECTIVE**
+• **Market Bias:** Bullish Support Intact
+• **Action Directive:** `{action}`
+━━━━━━━━━━━━━━━━━━━━━━━━
+        """
+        self._dispatch_telegram(alert_msg)
 
     def send_tp_hit_alert(self, position: dict, current_price: float):
         pnl_pct = abs((current_price - position["entry_price"]) / position["entry_price"]) * 100
         gain_usd = round(105.0, 2)
 
-        # Retrieve cumulative stats from track record
         stats = PerformanceTrackRecord.record_trade_close(position["ticker"], current_price, is_win=True, pnl_usd=105.0)
         eng_winrate = stats["engine_signals"]["win_rate_pct"]
         usr_winrate = stats["user_taken_trades"]["win_rate_pct"]
@@ -115,7 +150,7 @@ class ActivePositionMonitor:
 📉 **EXIT METRICS**
 • **Entry Price:** `${position['entry_price']:,.2f}`
 • **SL Exit Price:** `${current_price:,.2f}` (-{pnl_pct:.2f}%)
-• **Hard Risk Loss:** `-$35.00 USDT` (3.5% Equity Risk)
+• **Hard Loss:** `-$35.00 USDT` (3.5% Equity Risk)
 
 📊 **DUAL-TRACK AUDIT RECORD**
 • **Engine Overall Win Rate:** `{eng_winrate}%` ({stats['engine_signals']['wins']}/{stats['engine_signals']['total']} Signals)
@@ -128,16 +163,17 @@ class ActivePositionMonitor:
 
     def send_emergency_exit_alert(self, position: dict, current_price: float, reason: str):
         alert_msg = f"""
-🚨 **EMERGENCY WARNING: EARLY EXIT SUGGESTED** 🚨
+🚨 **EMERGENCY WARNING: CLOSE POSITION IMMEDIATELY** 🚨
 ━━━━━━━━━━━━━━━━━━━━━━━━
 • **Asset:** `{position['ticker']}` ({position['direction']})
 • **Reason:** `{reason}`
 
-📉 **POSITION STATE**
+📉 **CAPITAL DEFENSE ACTION**
 • **Entry Price:** `${position['entry_price']:,.2f}`
 • **Current Price:** `${current_price:,.2f}`
+• **Original SL:** `${position['stop_loss']:,.2f}`
 
-⚠️ **ACTION:** Close manually on Bitunix before SL is touched!
+⚠️ **ACTION:** Close position manually on Bitunix NOW before SL is touched to save capital!
 ━━━━━━━━━━━━━━━━━━━━━━━━
         """
         self._dispatch_telegram(alert_msg)
