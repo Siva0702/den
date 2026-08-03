@@ -11,9 +11,11 @@ from dotenv import load_dotenv
 # Import internal modules
 sys.path.append(os.path.dirname(__file__))
 from indicators.confluence_engine import SureShotConfluenceEngine
+from indicators.advanced_quant import AdvancedQuantEngine
 from position_monitor import ActivePositionMonitor
 from news.news_fetcher import RealtimeNewsFetcher
 from news.market_universe import DynamicMarketUniverse
+from data.live_feed import RealtimeMarketDataFeed
 from nlp.sentiment_engine import HuggingFaceSentimentEngine
 from alerts.telegram_bot import TelegramAlertBot
 
@@ -34,7 +36,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner Active & Operational 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v3.0 Active & Operational 24/7")
 
     def log_message(self, format, *args):
         return # Suppress HTTP server logging
@@ -47,7 +49,7 @@ def start_health_server():
 
 def run_continuous_quant_hunter():
     universe = DynamicMarketUniverse.get_full_hunting_universe()
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 MULTI-ASSET QUANT HUNTER ACTIVE Across {len(universe)} Assets...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v3.0 | Scanning {len(universe)} Assets Across Crypto, TradFi & Commodities...")
 
     # Fetch global news wire
     headlines = news_engine.fetch_latest_headlines(limit=2)
@@ -60,19 +62,20 @@ def run_continuous_quant_hunter():
         asset_class = item["asset_class"]
         base_p = item.get("base_price", 100.0)
         
-        # 1. Generate Price Feed Stream
-        np.random.seed(int(time.time() * 1000 + hash(ticker)) % 100000)
-        prices = base_p + np.cumsum(np.random.randn(100) * (base_p * 0.002))
-        df = pd.DataFrame({
-            'open': prices, 'high': prices + (base_p * 0.003), 'low': prices - (base_p * 0.003), 'close': prices + (base_p * 0.001)
-        })
+        # 1. Fetch Real-time Market OHLCV Data
+        df = RealtimeMarketDataFeed.get_live_ohlcv(ticker, asset_class, base_p)
+        if df is None or len(df) < 15:
+            continue
 
-        # 2. Check Open Trades for Invalidation / Early Exit First
+        # 2. Advanced Quant Analysis (VWAP + Volatility Regimes)
+        quant_meta = AdvancedQuantEngine.calculate_vwap_and_volatility(df)
+
+        # 3. Check Open Trades for Invalidation / Early Exit First
         current_price = df.iloc[-1]['close']
         structure_flipped = df.iloc[-1]['close'] < df.iloc[-10]['low']
         monitor.check_active_positions(ticker, current_price, sm, structure_flipped)
 
-        # 3. Evaluate High-Confluence Sure-Shot Opportunities
+        # 4. Evaluate High-Confluence Sure-Shot Opportunities
         signal = SureShotConfluenceEngine.evaluate_setup(df, sm, base_win_rate=0.55)
 
         if signal["is_sure_shot"]:
@@ -93,7 +96,7 @@ def run_continuous_quant_hunter():
             suggested_leverage = max(round(notional_position / suggested_margin), 10)
 
             alert_msg = f"""
-🎯 **SURE-SHOT OPPORTUNITY HUNTED: {ticker}** 🎯
+🎯 **DEN ENGINE v3.0 SURE-SHOT SIGNAL: {ticker}** 🎯
 ━━━━━━━━━━━━━━━━━━━━━━━━
 • **Asset:** `{ticker}` ({asset_class})
 • **Target ROI Goal:** `$750 – $3,000+/mo (75%–300%)`
@@ -101,9 +104,11 @@ def run_continuous_quant_hunter():
 • **Direction:** `{direction}`
 • **Model Win Rate:** `{signal['win_rate']*100:.1f}%` | **EV:** `+{signal['expected_value']:.2f}`
 
-📰 **CONFLUENCE DRIVERS**
+📰 **QUANT & VWAP DRIVERS**
 • **Headline:** "{headline_text}"
 • **NLP Sentiment:** `{sentiment['dominant_sentiment']}` ({sm}x Multiplier)
+• **VWAP Benchmark:** `${signal['vwap']:,.4f}` (Aligned: `{signal['direction']}`)
+• **Vol Regime:** `{quant_meta['volatility_regime']}`
 • **Technical Setup:** Structural Break + `{signal['fvg_detected']}`
 
 ⚡ **HIGH-LEVERAGE EXECUTION (Bitunix Isolated)**
@@ -135,7 +140,7 @@ if __name__ == "__main__":
     # Start Cloud Web Health Check Server in background thread
     threading.Thread(target=start_health_server, daemon=True).start()
     
-    print("🚀 Anti Gravity Multi-Asset Opportunity Hunter Active (Continuous 24/7 Cloud Loop)...")
+    print("🚀 Anti Gravity Den Engine v3.0 Active (Continuous 24/7 Cloud Loop)...")
     try:
         while True:
             run_continuous_quant_hunter()

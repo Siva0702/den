@@ -10,17 +10,23 @@ class SureShotConfluenceEngine:
         base_win_rate: float = 0.55
     ) -> dict:
         """
-        Filters trades for High-Confluence setups.
+        Refined v3.0 Quantitative Sure-Shot Filter.
         Requires:
         1. Market Structure Break (BOS / CHoCH)
         2. Fair Value Gap (FVG) Retest
-        3. RSI Alignment (40-60 Momentum Zone)
+        3. VWAP Alignment (Longs > VWAP, Shorts < VWAP)
         4. Sentiment Multiplier Sm >= 1.15 (Bullish) or <= 0.85 (Bearish)
+        5. Win Rate W >= 65% & EV >= +0.10
         """
         df = ohlcv_df.copy()
         df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
         df['ema_50'] = df['close'].ewm(span=50, adjust=False).mean()
         
+        # Calculate VWAP
+        typical_price = (df['high'] + df['low'] + df['close']) / 3.0
+        df['pv'] = typical_price * df['volume']
+        df['vwap'] = df['pv'].cumsum() / df['volume'].cumsum()
+
         # RSI 14
         delta = df['close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(14).mean()
@@ -45,11 +51,15 @@ class SureShotConfluenceEngine:
         bullish_fvg = latest['low'] > prior_candle['high']
         bearish_fvg = latest['high'] < prior_candle['low']
 
-        # 3. Directional Alignment
-        is_bullish = bullish_bos and latest['ema_20'] > latest['ema_50'] and sentiment_multiplier >= 1.15
-        is_bearish = bearish_bos and latest['ema_20'] < latest['ema_50'] and sentiment_multiplier <= 0.85
+        # 3. VWAP Alignment
+        above_vwap = latest['close'] > latest['vwap']
+        below_vwap = latest['close'] < latest['vwap']
 
-        # 4. Adjusted Probability & EV Calculation
+        # 4. Directional Alignment
+        is_bullish = bullish_bos and latest['ema_20'] > latest['ema_50'] and above_vwap and sentiment_multiplier >= 1.15
+        is_bearish = bearish_bos and latest['ema_20'] < latest['ema_50'] and below_vwap and sentiment_multiplier <= 0.85
+
+        # 5. Adjusted Probability & EV Calculation
         adjusted_win_rate = min(max(base_win_rate * sentiment_multiplier, 0.35), 0.85)
         reward_to_risk = 2.50
         ev = (adjusted_win_rate * reward_to_risk) - (1.0 - adjusted_win_rate)
@@ -63,6 +73,7 @@ class SureShotConfluenceEngine:
             "win_rate": round(adjusted_win_rate, 4),
             "expected_value": round(ev, 4),
             "entry_price": latest['close'],
+            "vwap": round(latest['vwap'], 4),
             "atr": latest['atr'],
             "rsi": round(latest['rsi'], 2),
             "fvg_detected": "BULLISH FVG" if bullish_fvg else ("BEARISH FVG" if bearish_fvg else "NONE")
