@@ -16,6 +16,7 @@ from indicators.macro_regime import MacroRegimeFilter
 from indicators.volume_profile import InstitutionalVolumeProfile
 from indicators.funding_defense import FundingRateDefenseEngine
 from indicators.velocity_engine import MomentumVelocityEngine
+from indicators.duration_estimator import PrecisionDurationEstimator
 from ml.self_learning import SelfLearningQuantEngine
 from ml.internet_learning import InternetQuantLearningEngine
 from news.macro_events import USMacroEventEngine
@@ -43,7 +44,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v9.0 Apex Neural Active & Operational 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v9.1 Precision Duration Active 24/7")
 
     def log_message(self, format, *args):
         return
@@ -59,7 +60,7 @@ def run_continuous_quant_hunter():
     learned_weights = SelfLearningQuantEngine.get_learned_weights()
     internet_knowledge = InternetQuantLearningEngine.fetch_and_update_knowledge()
 
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v9.0 APEX NEURAL | Hunting {len(universe)} Assets with Velocity Expansion & Zero-Chop Filter...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v9.1 PRECISION | Hunting {len(universe)} Assets with Precision Duration & Zero-Chop Filter...")
 
     headlines = news_engine.fetch_latest_headlines(limit=2)
     headline_text = headlines[0]['headline'] if headlines else "Global macro markets trading within active momentum volatility."
@@ -109,6 +110,11 @@ def run_continuous_quant_hunter():
             sl = round(entry - (signal["atr"] * 1.2) if direction == "LONG" else entry + (signal["atr"] * 1.2), 2)
             tp = round(entry + (signal["atr"] * 3.6) if direction == "LONG" else entry - (signal["atr"] * 3.6), 2)
             
+            # Precision Duration Calculation
+            duration_meta = PrecisionDurationEstimator.calculate_estimated_duration(
+                entry, tp, signal["atr"], velocity_meta["velocity_ratio"]
+            )
+
             sl_pct = abs(entry - sl) / entry
             tp_pct = abs(tp - entry) / entry
             
@@ -118,19 +124,20 @@ def run_continuous_quant_hunter():
             suggested_leverage = max(round(notional_position / suggested_margin), 15)
 
             alert_msg = f"""
-🎯 **DEN ENGINE v9.0 APEX NEURAL SIGNAL: {ticker}** 🎯
+🎯 **DEN ENGINE v9.1 PRECISION SIGNAL: {ticker}** 🎯
 ━━━━━━━━━━━━━━━━━━━━━━━━
 • **Asset:** `{ticker}` ({sector})
-• **Setup Type:** `1-HOUR FAST INTRADAY SCALP`
+• **Setup Type:** `INTRADAY MOMENTUM BREAKOUT`
+• **Est. Trade Duration:** `{duration_meta['formatted_label']}` ⏱️
 • **Account Equity:** `${ACCOUNT_BALANCE:,.2f} USDT`
 • **Direction:** `{direction}` 🚀
 • **Model Win Rate:** `{signal['win_rate']*100:.1f}%` | **EV:** `+{signal['expected_value']:.2f}`
 
-⚡ **VELOCITY & FUNDING METRICS**
+⚡ **VELOCITY & DURATION METRICS**
+• **Est. Time to TP:** `{duration_meta['min_duration']} – {duration_meta['max_duration']} mins`
 • **Momentum Velocity:** `{velocity_meta['velocity_ratio']}x` (Exploding: `{velocity_meta['is_exploding']}`)
 • **8h Funding Rate:** `{funding_meta['funding_pct']}%` ({funding_meta['status']})
 • **Headline:** "{headline_text}"
-• **HF Sentiment:** `{sentiment['dominant_sentiment']}` ({sm:.2f}x Multiplier)
 • **Volume POC:** `${poc_meta['poc']:,.2f}` (Aligned: `{direction}`)
 • **VWAP Benchmark:** `${signal['vwap']:,.2f}` (Aligned: `{direction}`)
 
@@ -143,11 +150,11 @@ def run_continuous_quant_hunter():
 • **Hard Risk (SL Exit):** `${dollars_at_risk:,.2f} USDT` (3.5%)
 • **Potential Gain (TP Exit):** `${dollars_at_risk * 3.0:,.2f} USDT` (+10.5% Account Gain)
 ━━━━━━━━━━━━━━━━━━━━━━━━
-[✓] Zero-Chop Velocity Filter Applied (Fast Immediate Movement)
-[✓] Self-Taught Internet & Reinforcement Alpha Active
+[✓] Precision Duration Calculation Applied
+[✓] Zero-Chop Velocity Filter Active
             """
             telegram.send_alert(alert_msg)
-            print(f"[✓] v9.0 NEURAL SIGNAL DISPATCHED FOR {ticker}")
+            print(f"[✓] v9.1 PRECISION SIGNAL DISPATCHED FOR {ticker}")
 
             positions = monitor.load_positions()
             positions.append({
@@ -166,7 +173,7 @@ def run_continuous_quant_hunter():
 
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
-    print("🚀 Anti Gravity Den Engine v9.0 Apex Neural Active (Continuous 24/7 Cloud Loop)...")
+    print("🚀 Anti Gravity Den Engine v9.1 Precision Active (Continuous 24/7 Cloud Loop)...")
     try:
         while True:
             run_continuous_quant_hunter()
