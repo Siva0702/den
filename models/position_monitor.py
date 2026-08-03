@@ -35,9 +35,16 @@ class ActivePositionMonitor:
             json.dump(positions, f, indent=2)
 
     def check_active_positions(self, current_ticker: str, current_price: float, current_sentiment_multiplier: float, structure_flipped: bool):
+        """
+        Event-Driven Smart Notifications Engine:
+        Only alerts when significant milestone events occur:
+        1. TP Hit -> WINNER alert
+        2. SL Hit -> RISK DEFENSE alert
+        3. 50% Distance to TP -> MOVE STOP LOSS TO BREAKEVEN alert (Zero Risk!)
+        4. Breaking Bad News / Structure Flip -> EMERGENCY EARLY EXIT alert
+        """
         positions = self.load_positions()
         remaining_positions = []
-        now_ts = time.time()
 
         for pos in positions:
             if pos["ticker"] != current_ticker:
@@ -51,6 +58,11 @@ class ActivePositionMonitor:
 
             tp_hit = (direction == "LONG" and current_price >= tp) or (direction == "SHORT" and current_price <= tp)
             sl_hit = (direction == "LONG" and current_price <= sl) or (direction == "SHORT" and current_price >= sl)
+
+            # Calculate 50% Progress to TP for Breakeven SL Adjustment
+            tp_dist = abs(tp - entry)
+            current_dist = (current_price - entry) if direction == "LONG" else (entry - current_price)
+            progress_pct = (current_dist / max(tp_dist, 0.0001)) * 100.0
 
             # Emergency Bad News or Macro Threat
             sentiment_threat = (direction == "LONG" and current_sentiment_multiplier < 0.85) or \
@@ -69,39 +81,31 @@ class ActivePositionMonitor:
                 self.send_emergency_exit_alert(pos, current_price, threat_reason)
                 print(f"[🚨] EMERGENCY EARLY EXIT ALERT for {current_ticker}: {threat_reason}")
             else:
-                # 2-Hour Progress & Momentum Digest (7200 seconds)
-                last_digest = pos.get("last_digest_ts", 0)
-                if (now_ts - last_digest) >= 7200:
-                    pos["last_digest_ts"] = now_ts
-                    self.send_2h_progress_digest(pos, current_price)
+                # Smart Event Alert: Move Stop-Loss to Breakeven when 50%+ to TP!
+                if progress_pct >= 50.0 and not pos.get("be_alert_sent", False):
+                    pos["be_alert_sent"] = True
+                    self.send_breakeven_sl_alert(pos, current_price, progress_pct)
                 remaining_positions.append(pos)
 
         self.save_positions(remaining_positions)
 
-    def send_2h_progress_digest(self, position: dict, current_price: float):
-        pnl_pct = ((current_price - position["entry_price"]) / position["entry_price"]) * 100
-        if position["direction"] == "SHORT":
-            pnl_pct = -pnl_pct
-
-        action = "HOLD — TARGET INTACT 🚀" if pnl_pct >= 0 else "HOLD — MONITORING SUPPORT 🛡️"
-        if pnl_pct >= 0.5:
-            action = "HOLD — CONSIDER MOVING STOP TO BREAKEVEN 🔒"
+    def send_breakeven_sl_alert(self, position: dict, current_price: float, progress_pct: float):
+        pnl_pct = abs((current_price - position["entry_price"]) / position["entry_price"]) * 100
 
         alert_msg = f"""
-📊 **2-HOUR TRADE PROGRESS & MOMENTUM DIGEST** 📊
+🔒 **SMART ACTION: MOVE STOP LOSS TO BREAKEVEN** 🔒
 ━━━━━━━━━━━━━━━━━━━━━━━━
 • **Asset:** `{position['ticker']}` ({position['direction']})
-• **Current Status:** `{action}`
+• **Status:** `50%+ PROGRESS TO TAKE PROFIT ({progress_pct:.1f}%)`
 
-📈 **LIVE POSITION METRICS**
+📈 **POSITION STATE**
 • **Entry Price:** `${position['entry_price']:,.2f}`
-• **Current Price:** `${current_price:,.2f}` ({pnl_pct:+.2f}%)
+• **Current Price:** `${current_price:,.2f}` (+{pnl_pct:.2f}%)
 • **Take Profit Target:** `${position['take_profit']:,.2f}`
-• **Stop Loss:** `${position['stop_loss']:,.2f}`
 
-🧠 **MOMENTUM & DIRECTIVE**
-• **Market Bias:** Bullish Support Intact
-• **Action Directive:** `{action}`
+⚡ **ACTION DIRECTIVE (Bitunix)**
+• Change **Stop-Loss** on Bitunix to `${position['entry_price']:,.2f}` (Breakeven Entry).
+• **RESULT:** Trade is now 100% Risk-Free (Zero Risk of Loss)!
 ━━━━━━━━━━━━━━━━━━━━━━━━
         """
         self._dispatch_telegram(alert_msg)
@@ -150,7 +154,7 @@ class ActivePositionMonitor:
 📉 **EXIT METRICS**
 • **Entry Price:** `${position['entry_price']:,.2f}`
 • **SL Exit Price:** `${current_price:,.2f}` (-{pnl_pct:.2f}%)
-• **Hard Loss:** `-$35.00 USDT` (3.5% Equity Risk)
+• **Hard Risk Loss:** `-$35.00 USDT` (3.5% Equity Risk)
 
 📊 **DUAL-TRACK AUDIT RECORD**
 • **Engine Overall Win Rate:** `{eng_winrate}%` ({stats['engine_signals']['wins']}/{stats['engine_signals']['total']} Signals)
