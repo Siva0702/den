@@ -27,8 +27,18 @@ class PerformanceTrackRecord:
     @classmethod
     def log_trade_signal(cls, ticker: str, direction: str, entry: float, sl: float, tp: float, win_rate: float, ev: float, user_taken: bool = False):
         cls._ensure_file()
-        with open(HISTORY_FILE, "r") as f:
-            data = json.load(f)
+        try:
+            with open(HISTORY_FILE, "r") as f:
+                data = json.load(f)
+        except Exception:
+            data = {}
+
+        if "engine_signals" not in data:
+            data["engine_signals"] = {"total": 0, "wins": 0, "losses": 0, "win_rate_pct": 0.0, "pnl_usd": 0.0}
+        if "user_taken_trades" not in data:
+            data["user_taken_trades"] = {"total": 0, "wins": 0, "losses": 0, "win_rate_pct": 0.0, "pnl_usd": 0.0}
+        if "trades" not in data:
+            data["trades"] = []
 
         trade_entry = {
             "id": len(data["trades"]) + 1,
@@ -55,8 +65,18 @@ class PerformanceTrackRecord:
     @classmethod
     def record_trade_close(cls, ticker: str, exit_price: float, is_win: bool, pnl_usd: float):
         cls._ensure_file()
-        with open(HISTORY_FILE, "r") as f:
-            data = json.load(f)
+        try:
+            with open(HISTORY_FILE, "r") as f:
+                data = json.load(f)
+        except Exception:
+            data = {}
+
+        if "engine_signals" not in data:
+            data["engine_signals"] = {"total": 0, "wins": 0, "losses": 0, "win_rate_pct": 0.0, "pnl_usd": 0.0}
+        if "user_taken_trades" not in data:
+            data["user_taken_trades"] = {"total": 0, "wins": 0, "losses": 0, "win_rate_pct": 0.0, "pnl_usd": 0.0}
+        if "trades" not in data:
+            data["trades"] = []
 
         for trade in reversed(data["trades"]):
             if trade["ticker"] == ticker and trade["status"] == "OPEN":
