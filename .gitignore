@@ -1,0 +1,17 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+env/
+venv/
+
+# Environment and secrets
+.env
+*.pem
+
+# Data & OS files
+.DS_Store
+Thumbs.db
+data/raw_financials/*.pdf
+data/raw_financials/*.xlsx
