@@ -92,7 +92,7 @@ class DynamicMarketUniverse:
     @staticmethod
     def _get_base_price(ticker: str) -> float:
         prices = {
-            "BTC/USDT": 65000.0, "ETH/USDT": 3400.0, "SOL/USDT": 150.0, "XRP/USDT": 0.60,
+            "BTC/USDT": 63900.0, "ETH/USDT": 1870.0, "SOL/USDT": 74.0, "XRP/USDT": 1.08,
             "DOGE/USDT": 0.12, "AVAX/USDT": 28.0, "LINK/USDT": 14.0, "NEAR/USDT": 5.50,
             "SUI/USDT": 1.20, "PEPE/USDT": 0.00001, "WIF/USDT": 2.10, "NVDA/USDT": 125.0,
             "TSLA/USDT": 220.0, "AAPL/USDT": 225.0, "AMZN/USDT": 180.0, "MSFT/USDT": 440.0,

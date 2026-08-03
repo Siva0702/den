@@ -52,20 +52,17 @@ def start_health_server():
 
 def run_continuous_quant_hunter():
     universe = DynamicMarketUniverse.get_full_hunting_universe()
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v7.0 APEX 360 | Scanning {len(universe)} Global Assets Across Macro, Fed, Volume POC & SMC...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v7.0 APEX 360 | Scanning {len(universe)} Global Assets Across Real REST API Order Books...")
 
-    # 1. Fetch Global Macro Wire & Hugging Face Multi-Model Ensemble Sentiment
     headlines = news_engine.fetch_latest_headlines(limit=2)
     headline_text = headlines[0]['headline'] if headlines else "Global macro markets trading within active momentum volatility."
     sentiment = nlp.analyze_news_ensemble(headline_text)
     sm = sentiment["sentiment_multiplier"]
 
-    # 2. Fetch US Macro Key Event Multiplier
     macro_events = USMacroEventEngine.get_macro_event_multiplier()
     macro_multiplier = macro_events["macro_multiplier"]
 
-    # 3. Fetch SPY Benchmark Data
-    spy_df = RealtimeMarketDataFeed.get_live_ohlcv("SPY/USDT", "Macro Benchmark", 540.0)
+    spy_df, _ = RealtimeMarketDataFeed.get_live_ohlcv("SPY/USDT", "Macro Benchmark", 540.0)
     macro_meta = MacroRegimeFilter.evaluate_macro_trend(spy_df)
 
     for item in universe:
@@ -74,29 +71,28 @@ def run_continuous_quant_hunter():
         sector = item.get("sector", "Global")
         base_p = item.get("base_price", 100.0)
         
-        # 4. Fetch Real-time Live Market Chart
-        df = RealtimeMarketDataFeed.get_live_ohlcv(ticker, asset_class, base_p)
+        df, is_real = RealtimeMarketDataFeed.get_live_ohlcv(ticker, asset_class, base_p)
         if df is None or len(df) < 15:
             continue
-
-        quant_meta = AdvancedQuantEngine.calculate_vwap_and_volatility(df)
-        poc_meta = InstitutionalVolumeProfile.calculate_poc(df)
 
         current_price = round(df.iloc[-1]['close'], 2)
         structure_flipped = df.iloc[-1]['close'] < df.iloc[-10]['low']
         
-        # 5. Continuous Active Position Defense & TP/SL Monitoring
-        monitor.check_active_positions(ticker, current_price, sm, structure_flipped)
+        # 1. Continuous Position Defense (ONLY ON REAL LIVE REST FEEDS!)
+        if is_real:
+            monitor.check_active_positions(ticker, current_price, sm, structure_flipped)
 
-        # 6. Evaluate High-Confluence 360 Sure-Shot Opportunities
+        quant_meta = AdvancedQuantEngine.calculate_vwap_and_volatility(df)
+        poc_meta = InstitutionalVolumeProfile.calculate_poc(df)
+
+        # 2. Evaluate High-Confluence 360 Sure-Shot Opportunities
         effective_multiplier = sm * macro_multiplier * macro_meta["macro_score"]
         signal = SureShotConfluenceEngine.evaluate_setup(df, effective_multiplier, base_win_rate=0.58)
 
-        if signal["is_sure_shot"]:
+        if signal["is_sure_shot"] and is_real:
             direction = signal["direction"]
             entry = current_price
             
-            # Single TP Target (3.0x ATR for clean 1:3 R:R ratio)
             sl = round(entry - (signal["atr"] * 1.2) if direction == "LONG" else entry + (signal["atr"] * 1.2), 2)
             tp = round(entry + (signal["atr"] * 3.6) if direction == "LONG" else entry - (signal["atr"] * 3.6), 2)
             
@@ -140,7 +136,6 @@ def run_continuous_quant_hunter():
             telegram.send_alert(alert_msg)
             print(f"[✓] v7.0 APEX 360 SIGNAL DISPATCHED FOR {ticker}")
 
-            # Register position for 24/7 TP/SL Hit Monitoring
             positions = monitor.load_positions()
             positions.append({
                 "ticker": ticker,
@@ -152,7 +147,6 @@ def run_continuous_quant_hunter():
             })
             monitor.save_positions(positions)
             
-            # Log into Dual-Track Audit File
             PerformanceTrackRecord.log_trade_signal(
                 ticker, direction, entry, sl, tp, signal["win_rate"], signal["expected_value"], user_taken=False
             )
