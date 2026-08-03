@@ -1,0 +1,10 @@
+[
+  {
+    "ticker": "ETH/USDT",
+    "direction": "LONG",
+    "entry_price": 1870.39,
+    "stop_loss": 1866.11,
+    "take_profit": 1889.46,
+    "time": "2026-08-04 01:39:43"
+  }
+]
