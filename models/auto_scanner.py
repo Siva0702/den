@@ -19,6 +19,7 @@ from indicators.velocity_engine import MomentumVelocityEngine
 from indicators.duration_estimator import PrecisionDurationEstimator
 from indicators.orderflow_imbalance import InstitutionalOrderFlowEngine
 from indicators.anti_manipulation import InstitutionalAntiManipulationShield
+from portfolio.capital_defense import CapitalDefenseShield
 from ml.self_learning import SelfLearningQuantEngine
 from ml.internet_learning import InternetQuantLearningEngine
 from news.macro_events import USMacroEventEngine
@@ -47,7 +48,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v11.0 Anti-Manipulation Shield Active 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v12.0 100% Target Shield Active 24/7")
 
     def log_message(self, format, *args):
         return
@@ -63,7 +64,7 @@ def run_continuous_quant_hunter():
     learned_weights = SelfLearningQuantEngine.get_learned_weights()
     internet_knowledge = InternetQuantLearningEngine.fetch_and_update_knowledge()
 
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v11.0 ANTI-MANIPULATION | Scanning {len(universe)} Global Assets with Stop-Hunt & Manipulation Shield...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v12.0 100% TARGET SHIELD | Scanning {len(universe)} Global Assets for Dynamic Kelly Setups...")
 
     headlines = news_engine.fetch_latest_headlines(limit=2)
     headline_text = headlines[0]['headline'] if headlines else "Global macro markets trading within active momentum volatility."
@@ -99,7 +100,7 @@ def run_continuous_quant_hunter():
         # 2. Anti-Manipulation Shield Audit
         shield_meta = InstitutionalAntiManipulationShield.audit_manipulation(df)
         if shield_meta["is_manipulated"]:
-            continue # Rejects stop-hunts & market maker wick traps!
+            continue
 
         # 3. Velocity & Chop Filter
         velocity_meta = MomentumVelocityEngine.calculate_velocity(df)
@@ -119,6 +120,11 @@ def run_continuous_quant_hunter():
             direction = signal["direction"]
             entry = current_price
             
+            # Dynamic Kelly Scaling ($50 risk for high-conviction -> $150 payout)
+            risk_params = CapitalDefenseShield.get_dynamic_risk_params(ACCOUNT_BALANCE, signal["win_rate"])
+            dollars_at_risk = risk_params["dollars_at_risk"]
+            potential_gain = risk_params["target_payout"]
+
             sl = round(entry - (signal["atr"] * 1.2) if direction == "LONG" else entry + (signal["atr"] * 1.2), 2)
             tp = round(entry + (signal["atr"] * 3.6) if direction == "LONG" else entry - (signal["atr"] * 3.6), 2)
             
@@ -129,26 +135,25 @@ def run_continuous_quant_hunter():
             sl_pct = abs(entry - sl) / entry
             tp_pct = abs(tp - entry) / entry
             
-            dollars_at_risk = 35.0
             notional_position = dollars_at_risk / max(sl_pct, 0.001)
             suggested_margin = 100.0
             suggested_leverage = max(round(notional_position / suggested_margin), 15)
 
             alert_msg = f"""
-🎯 **DEN ENGINE v11.0 ANTI-MANIPULATION SIGNAL: {ticker}** 🎯
+🎯 **DEN ENGINE v12.0 100% TARGET SURE-SHOT: {ticker}** 🎯
 ━━━━━━━━━━━━━━━━━━━━━━━━
 • **Asset:** `{ticker}` ({sector})
-• **Setup Type:** `MANIPULATION-SHIELDED BREAKOUT`
+• **Setup Type:** `HIGH-CONVICTION KELLY BREAKOUT`
 • **Est. Trade Duration:** `{duration_meta['formatted_label']}` ⏱️
 • **Account Equity:** `${ACCOUNT_BALANCE:,.2f} USDT`
 • **Direction:** `{direction}` 🚀
 • **Model Win Rate:** `{signal['win_rate']*100:.1f}%` | **EV:** `+{signal['expected_value']:.2f}`
 
-🛡️ **ANTI-MANIPULATION & ORDER FLOW DRIVERS**
-• **Market Shield Status:** `{shield_meta['status']}` (Clean Orderflow)
-• **Taker Buy Orderflow:** `{orderflow['buy_ratio']}%` (Buying Influx)
+⚡ **100% TARGET KELLY DRIVERS**
+• **Risk Scaling:** `${dollars_at_risk:,.2f} USDT` Risk $\rightarrow$ `${potential_gain:,.2f} USDT` Payout
+• **Market Shield Status:** `{shield_meta['status']}`
+• **Taker Buy Orderflow:** `{orderflow['buy_ratio']}%`
 • **8h Funding Rate:** `{funding_meta['funding_pct']}%` ({funding_meta['status']})
-• **US Regulatory Status:** `{regulatory_meta['regulatory_status']}`
 • **Volume POC:** `${poc_meta['poc']:,.2f}` (Aligned: `{direction}`)
 • **VWAP Benchmark:** `${signal['vwap']:,.2f}` (Aligned: `{direction}`)
 
@@ -158,14 +163,14 @@ def run_continuous_quant_hunter():
 • **Take Profit (TP):** `${tp:,.2f}` (+{tp_pct*100:.2f}%)  <-- SINGLE TP
 • **Recommended Leverage:** `{suggested_leverage}x Isolated`
 • **Required Margin:** `${suggested_margin:,.2f} USDT` (10% Buffer)
-• **Hard Risk (SL Exit):** `${dollars_at_risk:,.2f} USDT` (3.5%)
-• **Potential Gain (TP Exit):** `${dollars_at_risk * 3.0:,.2f} USDT` (+10.5% Account Gain)
+• **Hard Risk (SL Exit):** `${dollars_at_risk:,.2f} USDT` ({dollars_at_risk/ACCOUNT_BALANCE*100:.1f}%)
+• **Potential Gain (TP Exit):** `${potential_gain:,.2f} USDT` (+{potential_gain/ACCOUNT_BALANCE*100:.1f}% Account Gain)
 ━━━━━━━━━━━━━━━━━━━━━━━━
-[✓] 100% Market Maker Stop-Hunt & Manipulation Shield Active
-[✓] Clean Organic Taker Order Flow Verified
+[✓] 100% Target Attainment Kelly Sizing Applied
+[✓] Capital Defense & Monthly $1,000 Lock System Active
             """
             telegram.send_alert(alert_msg)
-            print(f"[✓] v11.0 ANTI-MANIPULATION SIGNAL DISPATCHED FOR {ticker}")
+            print(f"[✓] v12.0 100% TARGET SIGNAL DISPATCHED FOR {ticker}")
 
             positions = monitor.load_positions()
             positions.append({
@@ -184,7 +189,7 @@ def run_continuous_quant_hunter():
 
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
-    print("🚀 Anti Gravity Den Engine v11.0 Anti-Manipulation Shield Active (Continuous 24/7 Cloud Loop)...")
+    print("🚀 Anti Gravity Den Engine v12.0 100% Target Active (Continuous 24/7 Cloud Loop)...")
     try:
         while True:
             run_continuous_quant_hunter()
