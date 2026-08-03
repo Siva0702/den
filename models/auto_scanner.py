@@ -22,6 +22,7 @@ from indicators.anti_manipulation import InstitutionalAntiManipulationShield
 from indicators.correlation_defense import CorrelationDefenseEngine
 from indicators.regime_classifier import MarketRegimeClassifier
 from portfolio.capital_defense import CapitalDefenseShield
+from alerts.signal_cooldown import SignalCooldownEngine
 from ml.self_learning import SelfLearningQuantEngine
 from ml.internet_learning import InternetQuantLearningEngine
 from news.macro_events import USMacroEventEngine
@@ -52,7 +53,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v15.0 Ultimate Apex Edition Active & Operational 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v15.1 Zero-Spam Active & Operational 24/7")
 
     def log_message(self, format, *args):
         return
@@ -66,9 +67,15 @@ def start_health_server():
 def run_continuous_quant_hunter():
     universe = DynamicMarketUniverse.get_full_hunting_universe()
     learned_weights = SelfLearningQuantEngine.get_learned_weights()
-    internet_knowledge = InternetQuantLearningEngine.fetch_and_update_knowledge()
 
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v15.0 ULTIMATE APEX | Scanning {len(universe)} Global Assets Across Macro, Orderflow, Anti-Manipulation & Correlation Defense...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v15.1 ZERO-SPAM | Scanning {len(universe)} Global Assets for Ultra-High Conviction Setups (Max 2 Active Trades)...")
+
+    # Check currently active positions count (Cap at Max 2)
+    active_positions = monitor.load_positions()
+    if len(active_positions) >= 2:
+        print(f"[🛡️] Active Position Cap Reached ({len(active_positions)} active trades). Scanner pausing new signal generation until a trade closes.")
+        time.sleep(10)
+        return
 
     emergency_meta = EmergencyMacroWireEngine.scan_emergency_wire()
     wire_multiplier = emergency_meta["wire_multiplier"]
@@ -107,29 +114,30 @@ def run_continuous_quant_hunter():
         if is_real:
             monitor.check_active_positions(ticker, current_price, sm, structure_flipped)
 
-        # 2. Portfolio Correlation Overlap Defense
+        # 2. Strict 4-Hour Ticker Cooldown Audit (ZERO SPAM GUARANTEE!)
+        if not SignalCooldownEngine.can_send_signal(ticker):
+            continue
+
+        # 3. Portfolio Correlation Overlap Defense
         if CorrelationDefenseEngine.check_correlation_overlap(ticker):
             continue
 
-        # 3. Anti-Manipulation Shield Audit
+        # 4. Anti-Manipulation Shield Audit
         shield_meta = InstitutionalAntiManipulationShield.audit_manipulation(df)
         if shield_meta["is_manipulated"]:
             continue
 
-        # 4. Velocity & Chop Filter
+        # 5. Velocity & Chop Filter
         velocity_meta = MomentumVelocityEngine.calculate_velocity(df)
         if velocity_meta["is_dead_chop"]:
             continue
 
-        # 5. Volatility Regime Classification
         regime_meta = MarketRegimeClassifier.classify_regime(df)
-
         funding_meta = FundingRateDefenseEngine.get_funding_rate(ticker)
-        quant_meta = AdvancedQuantEngine.calculate_vwap_and_volatility(df)
         poc_meta = InstitutionalVolumeProfile.calculate_poc(df)
         orderflow = InstitutionalOrderFlowEngine.analyze_orderflow(df)
 
-        # 6. Evaluate High-Confluence 70%+ Win-Rate Opportunities
+        # 6. Evaluate Ultra-High Confluence 70%+ Win-Rate Opportunities
         effective_multiplier = sm * wire_multiplier * cal_multiplier * reg_multiplier * macro_multiplier * macro_meta["macro_score"] * funding_meta["squeeze_tailwind"] * shield_meta["shield_multiplier"]
         signal = SureShotConfluenceEngine.evaluate_setup(df, effective_multiplier, base_win_rate=learned_weights.get("base_win_rate", 0.58))
 
@@ -156,7 +164,7 @@ def run_continuous_quant_hunter():
             suggested_leverage = max(round(notional_position / suggested_margin), 15)
 
             alert_msg = f"""
-🎯 **DEN ENGINE v15.0 ULTIMATE APEX SIGNAL: {ticker}** 🎯
+🎯 **DEN ENGINE v15.1 ULTRA SURE-SHOT SIGNAL: {ticker}** 🎯
 ━━━━━━━━━━━━━━━━━━━━━━━━
 • **Asset:** `{ticker}` ({sector})
 • **Regime:** `{regime_meta['regime']}` (Vol Expansion: `{regime_meta['vol_expansion_ratio']}x`)
@@ -165,8 +173,7 @@ def run_continuous_quant_hunter():
 • **Direction:** `{direction}` 🚀
 • **Model Win Rate:** `{signal['win_rate']*100:.1f}%` | **EV:** `+{signal['expected_value']:.2f}`
 
-🧠 **ULTIMATE APEX QUANT DRIVERS**
-• **Emergency Wire:** `{emergency_meta['emergency_status']}`
+🧠 **ULTRA APEX QUANT DRIVERS**
 • **US Regulatory Status:** `{regulatory_meta['regulatory_status']}`
 • **Taker Buy Orderflow:** `{orderflow['buy_ratio']}%` (Buying Influx)
 • **Market Shield:** `{shield_meta['status']}` (Clean Orderflow)
@@ -183,11 +190,12 @@ def run_continuous_quant_hunter():
 • **Hard Risk (SL Exit):** `${dollars_at_risk:,.2f} USDT` ({dollars_at_risk/ACCOUNT_BALANCE*100:.1f}%)
 • **Potential Gain (TP Exit):** `${potential_gain:,.2f} USDT` (+{potential_gain/ACCOUNT_BALANCE*100:.1f}% Account Gain)
 ━━━━━━━━━━━━━━━━━━━━━━━━
-[✓] Den Engine v15.0 Ultimate Apex System Active
-[✓] 82+ Asset Scan + Correlation & Manipulation Defense Active
+[✓] Strict 4-Hour Cooldown Applied (Zero Spam)
+[✓] Active Position Limit Enforced (Max 2 Trades)
             """
             telegram.send_alert(alert_msg)
-            print(f"[✓] v15.0 ULTIMATE APEX SIGNAL DISPATCHED FOR {ticker}")
+            SignalCooldownEngine.record_signal_sent(ticker)
+            print(f"[✓] v15.1 ZERO-SPAM SIGNAL DISPATCHED FOR {ticker}")
 
             positions = monitor.load_positions()
             positions.append({
@@ -206,7 +214,7 @@ def run_continuous_quant_hunter():
 
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
-    print("🚀 Anti Gravity Den Engine v15.0 Ultimate Apex Active (Continuous 24/7 Cloud Loop)...")
+    print("🚀 Anti Gravity Den Engine v15.1 Zero-Spam Active (Continuous 24/7 Cloud Loop)...")
     try:
         while True:
             run_continuous_quant_hunter()
