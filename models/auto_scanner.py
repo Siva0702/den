@@ -15,7 +15,9 @@ from indicators.advanced_quant import AdvancedQuantEngine
 from indicators.macro_regime import MacroRegimeFilter
 from indicators.volume_profile import InstitutionalVolumeProfile
 from indicators.funding_defense import FundingRateDefenseEngine
+from indicators.velocity_engine import MomentumVelocityEngine
 from ml.self_learning import SelfLearningQuantEngine
+from ml.internet_learning import InternetQuantLearningEngine
 from news.macro_events import USMacroEventEngine
 from position_monitor import ActivePositionMonitor
 from audit.track_record import PerformanceTrackRecord
@@ -41,7 +43,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v8.0 Autonomous Self-Learning & Funding Defense Active 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v9.0 Apex Neural Active & Operational 24/7")
 
     def log_message(self, format, *args):
         return
@@ -55,8 +57,9 @@ def start_health_server():
 def run_continuous_quant_hunter():
     universe = DynamicMarketUniverse.get_full_hunting_universe()
     learned_weights = SelfLearningQuantEngine.get_learned_weights()
+    internet_knowledge = InternetQuantLearningEngine.fetch_and_update_knowledge()
 
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v8.0 AUTONOMOUS | Hunting {len(universe)} Assets with Self-Learned Weights & Funding Fee Defense...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v9.0 APEX NEURAL | Hunting {len(universe)} Assets with Velocity Expansion & Zero-Chop Filter...")
 
     headlines = news_engine.fetch_latest_headlines(limit=2)
     headline_text = headlines[0]['headline'] if headlines else "Global macro markets trading within active momentum volatility."
@@ -86,21 +89,18 @@ def run_continuous_quant_hunter():
         if is_real:
             monitor.check_active_positions(ticker, current_price, sm, structure_flipped)
 
-        # 2. Live Funding Rate & Fee Defense Check
+        # 2. Velocity & Chop Filter (REJECT DEAD/SIDEWAYS CHOP)
+        velocity_meta = MomentumVelocityEngine.calculate_velocity(df)
+        if velocity_meta["is_dead_chop"]:
+            continue # Rejects stagnant consolidation ranges so trades move immediately!
+
         funding_meta = FundingRateDefenseEngine.get_funding_rate(ticker)
-        
         quant_meta = AdvancedQuantEngine.calculate_vwap_and_volatility(df)
         poc_meta = InstitutionalVolumeProfile.calculate_poc(df)
 
         # 3. Evaluate High-Confluence Self-Learned Sure-Shot Opportunities
         effective_multiplier = sm * macro_multiplier * macro_meta["macro_score"] * funding_meta["squeeze_tailwind"]
         signal = SureShotConfluenceEngine.evaluate_setup(df, effective_multiplier, base_win_rate=learned_weights.get("base_win_rate", 0.58))
-
-        # Funding Fee Protection Gate: Skip Longs if Funding Fee is high positive, Skip Shorts if high negative
-        if signal["direction"] == "LONG" and not funding_meta["is_long_safe"]:
-            continue
-        if signal["direction"] == "SHORT" and not funding_meta["is_short_safe"]:
-            continue
 
         if signal["is_sure_shot"] and is_real:
             direction = signal["direction"]
@@ -118,19 +118,19 @@ def run_continuous_quant_hunter():
             suggested_leverage = max(round(notional_position / suggested_margin), 15)
 
             alert_msg = f"""
-🎯 **DEN ENGINE v8.0 AUTONOMOUS SIGNAL: {ticker}** 🎯
+🎯 **DEN ENGINE v9.0 APEX NEURAL SIGNAL: {ticker}** 🎯
 ━━━━━━━━━━━━━━━━━━━━━━━━
 • **Asset:** `{ticker}` ({sector})
-• **Setup Type:** `1-HOUR INTRADAY SCALP`
+• **Setup Type:** `1-HOUR FAST INTRADAY SCALP`
 • **Account Equity:** `${ACCOUNT_BALANCE:,.2f} USDT`
 • **Direction:** `{direction}` 🚀
 • **Model Win Rate:** `{signal['win_rate']*100:.1f}%` | **EV:** `+{signal['expected_value']:.2f}`
 
-🛡️ **FUNDING FEE & SELF-LEARNED DRIVERS**
-• **8h Funding Rate:** `{funding_meta['funding_pct']}%` (Status: `{funding_meta['status']}`)
+⚡ **VELOCITY & FUNDING METRICS**
+• **Momentum Velocity:** `{velocity_meta['velocity_ratio']}x` (Exploding: `{velocity_meta['is_exploding']}`)
+• **8h Funding Rate:** `{funding_meta['funding_pct']}%` ({funding_meta['status']})
 • **Headline:** "{headline_text}"
 • **HF Sentiment:** `{sentiment['dominant_sentiment']}` ({sm:.2f}x Multiplier)
-• **US Macro Events:** `{macro_events['macro_event_impact']}` ({macro_multiplier}x)
 • **Volume POC:** `${poc_meta['poc']:,.2f}` (Aligned: `{direction}`)
 • **VWAP Benchmark:** `${signal['vwap']:,.2f}` (Aligned: `{direction}`)
 
@@ -143,11 +143,11 @@ def run_continuous_quant_hunter():
 • **Hard Risk (SL Exit):** `${dollars_at_risk:,.2f} USDT` (3.5%)
 • **Potential Gain (TP Exit):** `${dollars_at_risk * 3.0:,.2f} USDT` (+10.5% Account Gain)
 ━━━━━━━━━━━━━━━━━━━━━━━━
-[✓] Funding Fee Protection Active (Capital Saved from Exchange Fees)
-[✓] Self-Learned Reinforcement Weights Applied
+[✓] Zero-Chop Velocity Filter Applied (Fast Immediate Movement)
+[✓] Self-Taught Internet & Reinforcement Alpha Active
             """
             telegram.send_alert(alert_msg)
-            print(f"[✓] v8.0 AUTONOMOUS SIGNAL DISPATCHED FOR {ticker}")
+            print(f"[✓] v9.0 NEURAL SIGNAL DISPATCHED FOR {ticker}")
 
             positions = monitor.load_positions()
             positions.append({
@@ -166,7 +166,7 @@ def run_continuous_quant_hunter():
 
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
-    print("🚀 Anti Gravity Den Engine v8.0 Autonomous Active (Continuous 24/7 Cloud Loop)...")
+    print("🚀 Anti Gravity Den Engine v9.0 Apex Neural Active (Continuous 24/7 Cloud Loop)...")
     try:
         while True:
             run_continuous_quant_hunter()
