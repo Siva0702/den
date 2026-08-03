@@ -12,22 +12,23 @@ from dotenv import load_dotenv
 sys.path.append(os.path.dirname(__file__))
 from indicators.confluence_engine import SureShotConfluenceEngine
 from indicators.advanced_quant import AdvancedQuantEngine
+from indicators.macro_regime import MacroRegimeFilter
 from position_monitor import ActivePositionMonitor
 from news.news_fetcher import RealtimeNewsFetcher
 from news.market_universe import DynamicMarketUniverse
 from data.live_feed import RealtimeMarketDataFeed
-from nlp.sentiment_engine import HuggingFaceSentimentEngine
+from nlp.ensemble_sentiment import HuggingFaceEnsembleSentimentEngine
 from alerts.telegram_bot import TelegramAlertBot
 
 load_dotenv()
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8847828896:AAFcTqjJGe6VN6mbPHcB1QTlvkpQxhb5ntI")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "7347569157")
 
-# Target Capital Base: $1,000 USDT (Targeting $750 - $3,000+ Monthly ROI)
+# Target Principal Pool: $1,000 USDT (Targeting $750 - $3,000+ Monthly ROI / 2x+ Yield)
 ACCOUNT_BALANCE = 1000.0
 
 monitor = ActivePositionMonitor(BOT_TOKEN, CHAT_ID)
-nlp = HuggingFaceSentimentEngine.get_instance()
+nlp = HuggingFaceEnsembleSentimentEngine.get_instance()
 news_engine = RealtimeNewsFetcher()
 telegram = TelegramAlertBot(BOT_TOKEN, CHAT_ID)
 
@@ -36,7 +37,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v3.0 Active & Operational 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v4.0 Ultra Active & Operational 24/7")
 
     def log_message(self, format, *args):
         return # Suppress HTTP server logging
@@ -49,64 +50,72 @@ def start_health_server():
 
 def run_continuous_quant_hunter():
     universe = DynamicMarketUniverse.get_full_hunting_universe()
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v3.0 | Scanning {len(universe)} Assets Across Crypto, TradFi & Commodities...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v4.0 ULTRA | Hunting {len(universe)} Assets (Crypto, Semis, Samsung, INTC, SPY, Japan EWJ, Gold)...")
 
-    # Fetch global news wire
+    # 1. Fetch Global Macro Wire & Hugging Face Multi-Model Ensemble Sentiment
     headlines = news_engine.fetch_latest_headlines(limit=2)
-    headline_text = headlines[0]['headline'] if headlines else "Markets trading within active volatility bounds."
-    sentiment = nlp.analyze_news(headline_text)
+    headline_text = headlines[0]['headline'] if headlines else "Global macro markets trading within active momentum volatility."
+    sentiment = nlp.analyze_news_ensemble(headline_text)
     sm = sentiment["sentiment_multiplier"]
+
+    # 2. Fetch SPY Macro Benchmark Data
+    spy_df = RealtimeMarketDataFeed.get_live_ohlcv("SPY/USDT", "Macro Benchmark", 540.0)
+    macro_meta = MacroRegimeFilter.evaluate_macro_trend(spy_df)
 
     for item in universe:
         ticker = item["ticker"]
         asset_class = item["asset_class"]
+        sector = item.get("sector", "Global")
         base_p = item.get("base_price", 100.0)
         
-        # 1. Fetch Real-time Market OHLCV Data
+        # 3. Fetch Real-time Live Market Chart
         df = RealtimeMarketDataFeed.get_live_ohlcv(ticker, asset_class, base_p)
         if df is None or len(df) < 15:
             continue
 
-        # 2. Advanced Quant Analysis (VWAP + Volatility Regimes)
+        # 4. Advanced Quant VWAP & Volatility Compression Checks
         quant_meta = AdvancedQuantEngine.calculate_vwap_and_volatility(df)
 
-        # 3. Check Open Trades for Invalidation / Early Exit First
+        # 5. Active Position Defense Check
         current_price = df.iloc[-1]['close']
         structure_flipped = df.iloc[-1]['close'] < df.iloc[-10]['low']
         monitor.check_active_positions(ticker, current_price, sm, structure_flipped)
 
-        # 4. Evaluate High-Confluence Sure-Shot Opportunities
-        signal = SureShotConfluenceEngine.evaluate_setup(df, sm, base_win_rate=0.55)
+        # 6. Evaluate High-Confluence Sure-Shot Opportunities
+        signal = SureShotConfluenceEngine.evaluate_setup(df, sm * macro_meta["macro_score"], base_win_rate=0.55)
 
         if signal["is_sure_shot"]:
             direction = signal["direction"]
             entry = signal["entry_price"]
             
-            # Tight Stop-Loss (1.2x ATR)
+            # Tight Stop-Loss (1.2x ATR distance) for max position sizing & capital defense
             sl = entry - (signal["atr"] * 1.2) if direction == "LONG" else entry + (signal["atr"] * 1.2)
             tp = entry + (signal["atr"] * 3.6) if direction == "LONG" else entry - (signal["atr"] * 3.6)
             
             sl_pct = abs(entry - sl) / entry
             tp_pct = abs(tp - entry) / entry
             
+            # High-Conviction Kelly Risk (3% to 5% of $1,000 = $30 to $50 risk)
             dollars_at_risk = ACCOUNT_BALANCE * min(max(signal["win_rate"] * 0.08, 0.03), 0.05)
             notional_position = dollars_at_risk / sl_pct
             
+            # Post ~$100 USDT Isolated Margin per trade (10% Buffer)
             suggested_margin = 100.0
-            suggested_leverage = max(round(notional_position / suggested_margin), 10)
+            suggested_leverage = max(round(notional_position / suggested_margin), 15)
 
             alert_msg = f"""
-🎯 **DEN ENGINE v3.0 SURE-SHOT SIGNAL: {ticker}** 🎯
+🎯 **DEN ENGINE v4.0 SURE-SHOT SIGNAL: {ticker}** 🎯
 ━━━━━━━━━━━━━━━━━━━━━━━━
-• **Asset:** `{ticker}` ({asset_class})
-• **Target ROI Goal:** `$750 – $3,000+/mo (75%–300%)`
+• **Asset:** `{ticker}` ({sector})
+• **Target Monthly ROI:** `$750 – $3,000+/mo (75%–300%)`
 • **Account Equity:** `${ACCOUNT_BALANCE:,.2f} USDT`
 • **Direction:** `{direction}`
 • **Model Win Rate:** `{signal['win_rate']*100:.1f}%` | **EV:** `+{signal['expected_value']:.2f}`
 
-📰 **QUANT & VWAP DRIVERS**
+📰 **HF ENSEMBLE & MACRO DRIVERS**
 • **Headline:** "{headline_text}"
-• **NLP Sentiment:** `{sentiment['dominant_sentiment']}` ({sm}x Multiplier)
+• **HF Sentiment:** `{sentiment['dominant_sentiment']}` ({sm}x Multiplier)
+• **Macro Bias:** `{macro_meta['macro_bias']}` (SPY: `${macro_meta['spy_price']}`)
 • **VWAP Benchmark:** `${signal['vwap']:,.4f}` (Aligned: `{signal['direction']}`)
 • **Vol Regime:** `{quant_meta['volatility_regime']}`
 • **Technical Setup:** Structural Break + `{signal['fvg_detected']}`
@@ -122,7 +131,7 @@ def run_continuous_quant_hunter():
 ━━━━━━━━━━━━━━━━━━━━━━━━
             """
             telegram.send_alert(alert_msg)
-            print(f"[✓] OPPORTUNITY HUNTED & DISPATCHED FOR {ticker}")
+            print(f"[✓] v4.0 SURE-SHOT OPPORTUNITY HUNTED & DISPATCHED FOR {ticker}")
 
             # Register into active position tracking
             positions = monitor.load_positions()
@@ -140,7 +149,7 @@ if __name__ == "__main__":
     # Start Cloud Web Health Check Server in background thread
     threading.Thread(target=start_health_server, daemon=True).start()
     
-    print("🚀 Anti Gravity Den Engine v3.0 Active (Continuous 24/7 Cloud Loop)...")
+    print("🚀 Anti Gravity Den Engine v4.0 Ultra Active (Continuous 24/7 Cloud Loop)...")
     try:
         while True:
             run_continuous_quant_hunter()
