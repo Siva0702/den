@@ -2,8 +2,10 @@
 import os
 import sys
 import time
+import threading
 import pandas as pd
 import numpy as np
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
 
 # Import internal modules
@@ -27,9 +29,25 @@ nlp = HuggingFaceSentimentEngine.get_instance()
 news_engine = RealtimeNewsFetcher()
 telegram = TelegramAlertBot(BOT_TOKEN, CHAT_ID)
 
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b"Anti Gravity Quant Scanner Active & Operational 24/7")
+
+    def log_message(self, format, *args):
+        return # Suppress HTTP server logging
+
+def start_health_server():
+    port = int(os.getenv("PORT", 10000))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    print(f"[✓] Cloud Health Check Server listening on port {port}")
+    server.serve_forever()
+
 def run_continuous_quant_hunter():
     universe = DynamicMarketUniverse.get_full_hunting_universe()
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 MULTI-ASSET QUANT HUNTER ACTIVE Across {len(universe)} Assets (Crypto, TradFi, Commodities)...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 MULTI-ASSET QUANT HUNTER ACTIVE Across {len(universe)} Assets...")
 
     # Fetch global news wire
     headlines = news_engine.fetch_latest_headlines(limit=2)
@@ -114,10 +132,13 @@ def run_continuous_quant_hunter():
             monitor.save_positions(positions)
 
 if __name__ == "__main__":
-    print("🚀 Anti Gravity Multi-Asset Opportunity Hunter Active (Continuous Scanning Across Crypto, TradFi & Commodities)...")
+    # Start Cloud Web Health Check Server in background thread
+    threading.Thread(target=start_health_server, daemon=True).start()
+    
+    print("🚀 Anti Gravity Multi-Asset Opportunity Hunter Active (Continuous 24/7 Cloud Loop)...")
     try:
         while True:
             run_continuous_quant_hunter()
-            time.sleep(10) # Continuous tight loop scan across entire market universe
+            time.sleep(10)
     except KeyboardInterrupt:
         print("\n[!] Scanner stopped by user.")
