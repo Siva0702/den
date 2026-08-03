@@ -14,6 +14,8 @@ from indicators.confluence_engine import SureShotConfluenceEngine
 from indicators.advanced_quant import AdvancedQuantEngine
 from indicators.macro_regime import MacroRegimeFilter
 from indicators.volume_profile import InstitutionalVolumeProfile
+from indicators.funding_defense import FundingRateDefenseEngine
+from ml.self_learning import SelfLearningQuantEngine
 from news.macro_events import USMacroEventEngine
 from position_monitor import ActivePositionMonitor
 from audit.track_record import PerformanceTrackRecord
@@ -39,7 +41,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v7.0 Apex 360 Active & Operational 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v8.0 Autonomous Self-Learning & Funding Defense Active 24/7")
 
     def log_message(self, format, *args):
         return
@@ -52,12 +54,14 @@ def start_health_server():
 
 def run_continuous_quant_hunter():
     universe = DynamicMarketUniverse.get_full_hunting_universe()
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v7.0 APEX 360 | Scanning {len(universe)} Global Assets Across Real REST API Order Books...")
+    learned_weights = SelfLearningQuantEngine.get_learned_weights()
+
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v8.0 AUTONOMOUS | Hunting {len(universe)} Assets with Self-Learned Weights & Funding Fee Defense...")
 
     headlines = news_engine.fetch_latest_headlines(limit=2)
     headline_text = headlines[0]['headline'] if headlines else "Global macro markets trading within active momentum volatility."
     sentiment = nlp.analyze_news_ensemble(headline_text)
-    sm = sentiment["sentiment_multiplier"]
+    sm = sentiment["sentiment_multiplier"] * learned_weights.get("sentiment_weight", 1.0)
 
     macro_events = USMacroEventEngine.get_macro_event_multiplier()
     macro_multiplier = macro_events["macro_multiplier"]
@@ -82,12 +86,21 @@ def run_continuous_quant_hunter():
         if is_real:
             monitor.check_active_positions(ticker, current_price, sm, structure_flipped)
 
+        # 2. Live Funding Rate & Fee Defense Check
+        funding_meta = FundingRateDefenseEngine.get_funding_rate(ticker)
+        
         quant_meta = AdvancedQuantEngine.calculate_vwap_and_volatility(df)
         poc_meta = InstitutionalVolumeProfile.calculate_poc(df)
 
-        # 2. Evaluate High-Confluence 360 Sure-Shot Opportunities
-        effective_multiplier = sm * macro_multiplier * macro_meta["macro_score"]
-        signal = SureShotConfluenceEngine.evaluate_setup(df, effective_multiplier, base_win_rate=0.58)
+        # 3. Evaluate High-Confluence Self-Learned Sure-Shot Opportunities
+        effective_multiplier = sm * macro_multiplier * macro_meta["macro_score"] * funding_meta["squeeze_tailwind"]
+        signal = SureShotConfluenceEngine.evaluate_setup(df, effective_multiplier, base_win_rate=learned_weights.get("base_win_rate", 0.58))
+
+        # Funding Fee Protection Gate: Skip Longs if Funding Fee is high positive, Skip Shorts if high negative
+        if signal["direction"] == "LONG" and not funding_meta["is_long_safe"]:
+            continue
+        if signal["direction"] == "SHORT" and not funding_meta["is_short_safe"]:
+            continue
 
         if signal["is_sure_shot"] and is_real:
             direction = signal["direction"]
@@ -105,7 +118,7 @@ def run_continuous_quant_hunter():
             suggested_leverage = max(round(notional_position / suggested_margin), 15)
 
             alert_msg = f"""
-🎯 **DEN ENGINE v7.0 APEX 360 SIGNAL: {ticker}** 🎯
+🎯 **DEN ENGINE v8.0 AUTONOMOUS SIGNAL: {ticker}** 🎯
 ━━━━━━━━━━━━━━━━━━━━━━━━
 • **Asset:** `{ticker}` ({sector})
 • **Setup Type:** `1-HOUR INTRADAY SCALP`
@@ -113,14 +126,13 @@ def run_continuous_quant_hunter():
 • **Direction:** `{direction}` 🚀
 • **Model Win Rate:** `{signal['win_rate']*100:.1f}%` | **EV:** `+{signal['expected_value']:.2f}`
 
-🌐 **360 MACRO, FED & QUANT DRIVERS**
+🛡️ **FUNDING FEE & SELF-LEARNED DRIVERS**
+• **8h Funding Rate:** `{funding_meta['funding_pct']}%` (Status: `{funding_meta['status']}`)
 • **Headline:** "{headline_text}"
-• **HF Sentiment:** `{sentiment['dominant_sentiment']}` ({sm}x Multiplier)
-• **US Macro Events:** `{macro_events['macro_event_impact']}` ({macro_multiplier}x Multiplier)
-• **Macro Index Bias:** `{macro_meta['macro_bias']}` (SPY: `${macro_meta['spy_price']:,.2f}`)
+• **HF Sentiment:** `{sentiment['dominant_sentiment']}` ({sm:.2f}x Multiplier)
+• **US Macro Events:** `{macro_events['macro_event_impact']}` ({macro_multiplier}x)
 • **Volume POC:** `${poc_meta['poc']:,.2f}` (Aligned: `{direction}`)
 • **VWAP Benchmark:** `${signal['vwap']:,.2f}` (Aligned: `{direction}`)
-• **Vol Regime:** `{quant_meta['volatility_regime']}`
 
 ⚡ **HIGH-LEVERAGE EXECUTION (Bitunix Isolated)**
 • **Entry Price:** `${entry:,.2f}`
@@ -131,10 +143,11 @@ def run_continuous_quant_hunter():
 • **Hard Risk (SL Exit):** `${dollars_at_risk:,.2f} USDT` (3.5%)
 • **Potential Gain (TP Exit):** `${dollars_at_risk * 3.0:,.2f} USDT` (+10.5% Account Gain)
 ━━━━━━━━━━━━━━━━━━━━━━━━
-[✓] Auto-Tracked 24/7 in Cloud Engine for TP/SL Hit Notification
+[✓] Funding Fee Protection Active (Capital Saved from Exchange Fees)
+[✓] Self-Learned Reinforcement Weights Applied
             """
             telegram.send_alert(alert_msg)
-            print(f"[✓] v7.0 APEX 360 SIGNAL DISPATCHED FOR {ticker}")
+            print(f"[✓] v8.0 AUTONOMOUS SIGNAL DISPATCHED FOR {ticker}")
 
             positions = monitor.load_positions()
             positions.append({
@@ -153,7 +166,7 @@ def run_continuous_quant_hunter():
 
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
-    print("🚀 Anti Gravity Den Engine v7.0 Apex 360 Active (Continuous 24/7 Cloud Loop)...")
+    print("🚀 Anti Gravity Den Engine v8.0 Autonomous Active (Continuous 24/7 Cloud Loop)...")
     try:
         while True:
             run_continuous_quant_hunter()
