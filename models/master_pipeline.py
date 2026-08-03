@@ -37,8 +37,8 @@ def run_a_to_z_quant_pipeline(
     headlines = news_engine.fetch_latest_headlines(limit=1)
     headline_text = headlines[0]['headline'] if headlines else "Market showing balanced momentum."
     
-    # 3. Hugging Face Sentiment Model
-    nlp = HuggingFaceSentimentEngine()
+    # 3. Hugging Face Sentiment Model (uses singleton instance to load weights once)
+    nlp = HuggingFaceSentimentEngine.get_instance()
     sentiment = nlp.analyze_news(headline_text)
     
     # 4. Base Probability & Kelly Sizing

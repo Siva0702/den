@@ -3,8 +3,16 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import torch
 
 class HuggingFaceSentimentEngine:
+    _instance = None
+
+    @classmethod
+    def get_instance(cls):
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
     def __init__(self):
-        # Load crypto-specific FinBERT model from Hugging Face
+        # Load crypto-specific FinBERT model from Hugging Face once
         self.crypto_model_name = "burakutf/finetuned-finbert-crypto"
         self.tokenizer = AutoTokenizer.from_pretrained(self.crypto_model_name)
         self.model = AutoModelForSequenceClassification.from_pretrained(self.crypto_model_name)
@@ -32,7 +40,7 @@ class HuggingFaceSentimentEngine:
         }
 
 if __name__ == "__main__":
-    engine = HuggingFaceSentimentEngine()
+    engine = HuggingFaceSentimentEngine.get_instance()
     
     # Test Macro Event
     headline = "US Federal Reserve signals aggressive rate cuts; Liquidity influx expected across risk assets."
