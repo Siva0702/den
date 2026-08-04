@@ -297,10 +297,10 @@ def run_continuous_quant_hunter():
                     reasoning_meta["authenticity_score"] * slippage_meta["slippage_score"]
                 )
 
-                signal = SureShotConfluenceEngine.evaluate_setup(df, effective_multiplier, base_win_rate=base_wr_setting)
+                signal = SureShotConfluenceEngine.evaluate_setup(df, effective_multiplier)
 
-                # ---- STRICT 75.0%+ WIN RATE GATE ----
-                if signal["is_sure_shot"] and signal["win_rate"] >= 0.75:
+                # ---- STRICT 76.0%+ DYNAMIC WIN RATE GATE (4+ INSTITUTIONAL CONFLUENCES) ----
+                if signal["is_sure_shot"] and signal["win_rate"] >= 0.76:
                     direction = signal["direction"]
                     entry = current_price
 
