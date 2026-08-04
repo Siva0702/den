@@ -268,11 +268,12 @@ def run_continuous_quant_hunter():
                     is_dispatched = telegram.send_alert(alert_msg)
                     if is_dispatched:
                         SignalCooldownEngine.record_signal_sent(ticker)
-                        print(f"[✓] v27.0 SIGNAL DELIVERED SUCCESSFULLY TO TELEGRAM FOR {ticker}", flush=True)
+                        print(f"[✓] v28.0 FRESH SIGNAL DELIVERED TO TELEGRAM FOR {ticker}", flush=True)
 
-                        # 1. Log to Engine Active Monitored Positions
+                        # 1. Replace old running position for ticker in active_positions.json with fresh setup
                         positions = monitor.load_positions()
-                        positions.append({
+                        updated_positions = [p for p in positions if p.get("ticker") != ticker]
+                        updated_positions.append({
                             "ticker": ticker,
                             "direction": direction,
                             "entry_price": entry,
@@ -281,9 +282,9 @@ def run_continuous_quant_hunter():
                             "win_rate": signal["win_rate"],
                             "time": time.strftime('%Y-%m-%d %H:%M:%S')
                         })
-                        monitor.save_positions(positions)
+                        monitor.save_positions(updated_positions)
                         
-                        # 2. Log to Dispatched Signals History (Separately from User Taken Trades)
+                        # 2. Append to Dispatched Signals History (Preserving Efficiency Tracking)
                         os.makedirs("portfolio", exist_ok=True)
                         disp_file = "portfolio/dispatched_signals.json"
                         dispatched = []
@@ -300,6 +301,7 @@ def run_continuous_quant_hunter():
                             "stop_loss": sl,
                             "take_profit": tp,
                             "win_rate": signal["win_rate"],
+                            "status": "FRESH_DISPATCH",
                             "time": time.strftime('%Y-%m-%d %H:%M:%S')
                         })
                         try:

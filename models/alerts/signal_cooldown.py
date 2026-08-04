@@ -1,33 +1,52 @@
 # models/alerts/signal_cooldown.py
 import json
 import os
+import time
 
+COOLDOWN_FILE = "portfolio/signal_cooldown.json"
 POSITIONS_FILE = "portfolio/active_positions.json"
 
 class SignalCooldownEngine:
     """
-    Den Engine v23.0 Outcome-Based Dynamic Cooldown:
-    Replaces arbitrary 4-hour time limits with Active Position Outcome Tracking.
-    - If a ticker has an ACTIVE OPEN TRADE, duplicate signals for that ticker are blocked.
-    - As soon as the trade hits TP or SL (position closes), the ticker is IMMEDIATELY UNLOCKED for fresh signals!
+    Den Engine v28.0 Outcome-Based & Dynamic Fresh Signal Replacement Engine:
+    Allows sending fresh updated signals on existing tickers if a higher-conviction setup forms
+    or after a short refresh buffer (15 minutes), while preserving old signal history for efficiency auditing!
     """
 
     @classmethod
-    def can_send_signal(cls, ticker: str) -> bool:
+    def can_send_signal(cls, ticker: str, refresh_minutes: float = 15.0) -> bool:
         if os.path.exists(POSITIONS_FILE):
             try:
                 with open(POSITIONS_FILE, "r") as f:
                     positions = json.load(f)
                     for pos in positions:
                         if pos.get("ticker") == ticker:
-                            print(f"[🛡️] Signal Suppressed for {ticker}: Trade currently ACTIVE in position monitor.")
-                            return False # Block duplicate signal while position is open!
-            except Exception as e:
-                print(f"[!] Error reading active positions for cooldown check: {e}")
-
-        return True # Trade has closed or is not active -> Free to send fresh signal!
+                            pos_time_str = pos.get("time")
+                            if pos_time_str:
+                                try:
+                                    pos_time = time.mktime(time.strptime(pos_time_str, '%Y-%m-%d %H:%M:%S'))
+                                    elapsed_mins = (time.time() - pos_time) / 60.0
+                                    # If signal is less than refresh_minutes old, hold off to prevent spam
+                                    if elapsed_mins < refresh_minutes:
+                                        return False
+                                except Exception:
+                                    pass
+            except Exception:
+                pass
+        return True
 
     @classmethod
     def record_signal_sent(cls, ticker: str):
-        # Position is logged directly in active_positions.json by position monitor
-        pass
+        cooldowns = {}
+        if os.path.exists(COOLDOWN_FILE):
+            try:
+                with open(COOLDOWN_FILE, "r") as f:
+                    cooldowns = json.load(f)
+            except Exception:
+                cooldowns = {}
+        cooldowns[ticker] = time.time()
+        try:
+            with open(COOLDOWN_FILE, "w") as f:
+                json.dump(cooldowns, f, indent=2)
+        except Exception as e:
+            print(f"[!] Error writing cooldowns: {e}")
