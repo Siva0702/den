@@ -1,1 +1,20 @@
-{"total_wins": 0, "total_losses": 0, "realized_win_rate": 0.0, "total_engine_pnl_usd": 0.0, "gross_wins_usd": 0.0, "gross_losses_usd": 0.0, "profit_factor": 0.0, "history": []}
+{
+  "total_wins": 1,
+  "total_losses": 0,
+  "realized_win_rate": 100.0,
+  "total_engine_pnl_usd": 150.13,
+  "gross_wins_usd": 150.13,
+  "gross_losses_usd": 0.0,
+  "profit_factor": 15013.0,
+  "history": [
+    {
+      "ticker": "SMCI/USDT",
+      "direction": "LONG",
+      "entry_price": 29.38,
+      "exit_price": 30.491,
+      "outcome": "WIN",
+      "pnl_usd": 150.13,
+      "timestamp": "2026-08-04 23:41:49"
+    }
+  ]
+}
