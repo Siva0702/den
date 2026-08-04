@@ -60,7 +60,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v21.0 SMC Confluence Active 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v21.1 Strict Telegram Verification Active 24/7")
 
     def log_message(self, format, *args):
         return
@@ -85,7 +85,7 @@ def run_continuous_quant_hunter():
     learned_weights = upgrade_meta["weights"] if isinstance(upgrade_meta, dict) else {}
     universe = DynamicMarketUniverse.get_full_hunting_universe()
 
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v21.0 SMC CONFLUENCE | Scanning {len(universe)} Global Assets...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v21.1 STRICT DISPATCH | Scanning {len(universe)} Global Assets...")
 
     # Active Position Cap (7 Positions)
     active_positions = monitor.load_positions()
@@ -172,7 +172,7 @@ def run_continuous_quant_hunter():
             print(f"[🛡️] Deep Reasoning Blocked {ticker}: {reasoning_meta['reasoning_verdict']}")
             continue
 
-        # 8. SMART MONEY CONCEPTS (SMC) & MULTI-TIMEFRAME CONFLUENCE (v21.0 Innovation)
+        # 8. SMART MONEY CONCEPTS (SMC) & MULTI-TIMEFRAME CONFLUENCE
         smc_meta = InstitutionalSMCConfluenceEngine.audit_smc_confluence(df)
         
         base_wr_setting = (learned_weights.get("base_win_rate", 0.62) + smc_meta["win_rate_boost"]) if isinstance(learned_weights, dict) else (0.62 + smc_meta["win_rate_boost"])
@@ -212,7 +212,7 @@ def run_continuous_quant_hunter():
             exact_gain_usd = round(actual_notional * tp_pct, 2)
             roi_gain_pct = round((exact_gain_usd / final_margin) * 100, 1)
 
-            # REDESIGNED ULTRA-CLEAN PAYLOAD WITH SMC & MULTI-TIMEFRAME CONFLUENCE
+            # REDESIGNED ULTRA-CLEAN PAYLOAD WITH STRICT DISPATCH VERIFICATION
             alert_msg = f"""
 🎯 **SURE-SHOT SIGNAL: {ticker}** 🎯
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -229,7 +229,7 @@ def run_continuous_quant_hunter():
 • **Target Gain (Win):** `+${exact_gain_usd:,.2f} USDT` (+{roi_gain_pct}% Margin ROI)
 
 🧠 **SMC & MULTI-TIMEFRAME QUANT DRIVERS**
-• **Model Version:** `v21.0 SMC & Multi-Timeframe Confluence`
+• **Model Version:** `v21.1 Strict Verified Telegram Dispatch`
 • **SMC Setup:** `{smc_meta['smc_setup_type']}`
 • **Model Win Rate:** `{signal['win_rate']*100:.1f}%` (Strict 75%+ Non-Negotiable Gate)
 • **Stop-Hunt Defense:** `{shield_meta['status']}` (Wide SL Buffer: `{sl_multiplier}x ATR`)
@@ -240,31 +240,34 @@ def run_continuous_quant_hunter():
 • **Volume POC / VWAP:** `${poc_meta['poc']:,.2f}` / `${signal['vwap']:,.2f}` (Aligned: `{direction}`)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [✓] Smart Money Concepts (SMC) Fair Value Gap & Multi-Timeframe Alignment Verified
-[✓] Market Maker Stop-Hunt & Liquidity Sweep Protection Active
+[✓] Telegram Phone Delivery Verified Before History Logging
             """
-            telegram.send_alert(alert_msg)
-            SignalCooldownEngine.record_signal_sent(ticker)
-            print(f"[✓] v21.0 SMC SIGNAL DISPATCHED FOR {ticker}")
-
-            positions = monitor.load_positions()
-            positions.append({
-                "ticker": ticker,
-                "direction": direction,
-                "entry_price": entry,
-                "stop_loss": sl,
-                "take_profit": tp,
-                "time": time.strftime('%Y-%m-%d %H:%M:%S')
-            })
-            monitor.save_positions(positions)
             
-            PerformanceTrackRecord.log_trade_signal(
-                ticker, direction, entry, sl, tp, signal["win_rate"], signal["expected_value"], user_taken=False
-            )
+            # STRICT DISPATCH RULE: Only log and record IF AND ONLY IF Telegram alert returns True!
+            is_dispatched = telegram.send_alert(alert_msg)
+            if is_dispatched:
+                SignalCooldownEngine.record_signal_sent(ticker)
+                print(f"[✓] v21.1 SIGNAL DELIVERED SUCCESSFULLY TO TELEGRAM FOR {ticker}")
+
+                positions = monitor.load_positions()
+                positions.append({
+                    "ticker": ticker,
+                    "direction": direction,
+                    "entry_price": entry,
+                    "stop_loss": sl,
+                    "take_profit": tp,
+                    "time": time.strftime('%Y-%m-%d %H:%M:%S')
+                })
+                monitor.save_positions(positions)
+                
+                PerformanceTrackRecord.log_trade_signal(
+                    ticker, direction, entry, sl, tp, signal["win_rate"], signal["expected_value"], user_taken=False
+                )
 
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
     threading.Thread(target=self_ping_keep_alive, daemon=True).start()
-    print("🚀 Anti Gravity Den Engine v21.0 SMC Confluence Active (Continuous 24/7 Cloud Loop)...")
+    print("🚀 Anti Gravity Den Engine v21.1 Strict Verified Telegram Dispatch Active (Continuous 24/7 Cloud Loop)...")
     try:
         while True:
             run_continuous_quant_hunter()
