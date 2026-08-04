@@ -26,7 +26,6 @@ from indicators.exchange_leverage import ExchangeLeverageEngine
 from indicators.deep_reasoning import DeepReasoningQuantEngine
 from indicators.slippage_defense import InstitutionalSlippageDefense
 from indicators.trailing_sl import DynamicBreakevenTrailingEngine
-from indicators.adaptive_threshold import AdaptiveDynamicThresholdEngine
 from portfolio.capital_defense import CapitalDefenseShield
 from alerts.signal_cooldown import SignalCooldownEngine
 from ml.self_learning import SelfLearningQuantEngine
@@ -60,7 +59,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v20.0 Quantum Adaptive Active 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v19.1 Restored Active 24/7")
 
     def log_message(self, format, *args):
         return
@@ -85,7 +84,7 @@ def run_continuous_quant_hunter():
     learned_weights = upgrade_meta["weights"] if isinstance(upgrade_meta, dict) else {}
     universe = DynamicMarketUniverse.get_full_hunting_universe()
 
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v20.0 ADAPTIVE VELOCITY | Scanning {len(universe)} Global Assets...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v19.1 RESTORED 75%+ PRECISION | Scanning {len(universe)} Global Assets...")
 
     # Active Position Cap (7 Positions)
     active_positions = monitor.load_positions()
@@ -172,19 +171,12 @@ def run_continuous_quant_hunter():
             print(f"[🛡️] Deep Reasoning Blocked {ticker}: {reasoning_meta['reasoning_verdict']}")
             continue
 
-        # 8. ADAPTIVE DYNAMIC THRESHOLD TUNING (v20.0 Innovation)
-        dynamic_gate_win_rate = AdaptiveDynamicThresholdEngine.calculate_dynamic_gate(
-            orderflow["buy_ratio"], 
-            not shield_meta["is_manipulated"], 
-            regime_meta["vol_expansion_ratio"]
-        )
-
-        # Evaluate Opportunity with Dynamic Threshold
+        # 8. STRICT 75.0%+ WIN-RATE PRECISION GATE (Uncompromised Precision!)
         effective_multiplier = sm * wire_multiplier * cal_multiplier * reg_multiplier * macro_multiplier * macro_meta["macro_score"] * funding_meta["squeeze_tailwind"] * shield_meta["shield_multiplier"] * reasoning_meta["authenticity_score"] * slippage_meta["slippage_score"]
         signal = SureShotConfluenceEngine.evaluate_setup(df, effective_multiplier, base_win_rate=learned_weights.get("base_win_rate", 0.62) if isinstance(learned_weights, dict) else 0.62)
 
-        # Adaptive Entry: Trigger Signal if Win Rate meets Dynamic Gate!
-        if signal["is_sure_shot"] and signal["win_rate"] >= dynamic_gate_win_rate and is_real:
+        # Require Strict 75%+ Win Rate Gate
+        if signal["is_sure_shot"] and signal["win_rate"] >= 0.75 and is_real:
             direction = signal["direction"]
             entry = current_price
             
@@ -215,7 +207,7 @@ def run_continuous_quant_hunter():
             exact_gain_usd = round(actual_notional * tp_pct, 2)
             roi_gain_pct = round((exact_gain_usd / final_margin) * 100, 1)
 
-            # REDESIGNED ULTRA-CLEAN PAYLOAD WITH ADAPTIVE VELOCITY MODEL
+            # REDESIGNED ULTRA-CLEAN PAYLOAD WITH RESTORED 75%+ PRECISION
             alert_msg = f"""
 🎯 **SURE-SHOT SIGNAL: {ticker}** 🎯
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -231,10 +223,9 @@ def run_continuous_quant_hunter():
 • **Hard Risk (Loss):** `-${exact_loss_usd:,.2f} USDT` (-{exact_loss_usd/ACCOUNT_BALANCE*100:.1f}% Equity)
 • **Target Gain (Win):** `+${exact_gain_usd:,.2f} USDT` (+{roi_gain_pct}% Margin ROI)
 
-🧠 **ADAPTIVE QUANT & ORDERFLOW DRIVERS**
-• **Model Version:** `v20.0 Quantum Adaptive Velocity`
-• **Adaptive Gate:** `{dynamic_gate_win_rate*100:.1f}%` (Orderflow Triggered)
-• **Model Win Rate:** `{signal['win_rate']*100:.1f}%` (EV: `+{signal['expected_value']:.2f}`)
+🧠 **INSTITUTIONAL QUANT & LIQUIDITY DRIVERS**
+• **Model Version:** `v19.1 Restored 75%+ Precision`
+• **Win Rate Gate:** `{signal['win_rate']*100:.1f}%` (Strict 75%+ Non-Negotiable Gate)
 • **Stop-Hunt Defense:** `{shield_meta['status']}` (Wide SL Buffer: `{sl_multiplier}x ATR`)
 • **Deep Audit:** `{reasoning_meta['reasoning_verdict']}`
 • **Market Regime:** `{regime_meta['regime']}` (Vol Expansion: `{regime_meta['vol_expansion_ratio']}x`)
@@ -242,12 +233,12 @@ def run_continuous_quant_hunter():
 • **US Regulatory Status:** `{regulatory_meta['regulatory_status']}`
 • **Volume POC / VWAP:** `${poc_meta['poc']:,.2f}` / `${signal['vwap']:,.2f}` (Aligned: `{direction}`)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[✓] Adaptive Dynamic Threshold Engine Active (Captures Fast Micro-Breakouts)
+[✓] Strict 75%+ Win-Rate Non-Negotiable Gate Restored
 [✓] Market Maker Stop-Hunt & Liquidity Sweep Protection Active
             """
             telegram.send_alert(alert_msg)
             SignalCooldownEngine.record_signal_sent(ticker)
-            print(f"[✓] v20.0 ADAPTIVE SIGNAL DISPATCHED FOR {ticker}")
+            print(f"[✓] v19.1 RESTORED SIGNAL DISPATCHED FOR {ticker}")
 
             positions = monitor.load_positions()
             positions.append({
@@ -267,7 +258,7 @@ def run_continuous_quant_hunter():
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
     threading.Thread(target=self_ping_keep_alive, daemon=True).start()
-    print("🚀 Anti Gravity Den Engine v20.0 Quantum Adaptive Active (Continuous 24/7 Cloud Loop)...")
+    print("🚀 Anti Gravity Den Engine v19.1 Restored 75%+ Active (Continuous 24/7 Cloud Loop)...")
     try:
         while True:
             run_continuous_quant_hunter()
