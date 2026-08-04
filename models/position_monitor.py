@@ -12,7 +12,7 @@ POSITIONS_FILE = "portfolio/active_positions.json"
 
 class ActivePositionMonitor:
     """
-    Den Engine v35.0 Real-Time Position Monitor & Engine Accuracy Tracker:
+    Den Engine v37.0 Real-Time Position Monitor & Engine Accuracy Tracker:
     Monitors active positions and calculates REAL PnL from actual price movements.
     Reports live engine efficiency on every TP/SL hit to Telegram.
     """

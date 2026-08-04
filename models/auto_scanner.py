@@ -115,7 +115,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
         status_text = (
-            f"Den Engine v35.0 | Status: {scanner_state['status']}\n"
+            f"Den Engine v37.0 Quant System | Status: {scanner_state['status']}\n"
             f"Last Scan: {scanner_state['last_scan_time']}\n"
             f"Total Scans: {scanner_state['total_scans']}\n"
             f"Total Signals Sent: {scanner_state['total_signals_sent']}\n"
@@ -189,7 +189,7 @@ def run_continuous_quant_hunter():
         learned_weights = upgrade_meta["weights"] if isinstance(upgrade_meta, dict) else {}
         universe = DynamicMarketUniverse.get_full_hunting_universe()
 
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v35.0 | Scanning {len(universe)} Assets (Real Binance Data Only)...", flush=True)
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v37.0 Quant System | Scanning {len(universe)} Assets...", flush=True)
 
         active_positions = monitor.load_positions()
         active_tickers = [p.get("ticker") for p in active_positions if isinstance(p, dict)]
@@ -484,17 +484,17 @@ def run_continuous_quant_hunter():
 # BACKGROUND SCANNER LOOP — Runs every 15 seconds on Render
 # ============================================================
 def start_background_scanner_loop():
-    print("🚀 Den Engine v35.0 Background Scanner Starting...", flush=True)
+    print("🚀 Den Engine v37.0 Quant System Background Scanner Starting...", flush=True)
     scanner_state["status"] = "INITIALIZING"
 
     # Send startup notification to Telegram
     try:
         telegram.send_alert(
-            "🚀 **Den Engine v35.0 Online**\n"
+            "🚀 **Den Engine v37.0 Online**\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "✅ Real Binance Futures Data\n"
-            "✅ Kelly Criterion Sizing\n"
-            "✅ Auto-Dispatch Active 24/7\n"
+            "✅ Granular Dynamic Win Rates (Un-capped)\n"
+            "✅ Parabolic Pump Exhaustion Shield Active\n"
+            "✅ Top-1 High-Conviction Selection Gate\n"
             f"⏰ Server Time: {time.strftime('%Y-%m-%d %H:%M:%S UTC')}"
         )
     except Exception as e:
@@ -536,5 +536,5 @@ if __name__ == "__main__":
     t_scan.start()
     t_ping = threading.Thread(target=self_ping_keep_alive, daemon=True)
     t_ping.start()
-    print("🚀 Den Engine v35.0 HTTP Health Server Active on Render Cloud...", flush=True)
+    print("🚀 Den Engine v37.0 HTTP Health Server Active on Render Cloud...", flush=True)
     start_health_server()

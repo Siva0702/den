@@ -1,1 +1,15 @@
-[]
+[
+  {
+    "ticker": "SMCI/USDT",
+    "direction": "LONG",
+    "entry_price": 29.38,
+    "stop_loss": 29.01,
+    "take_profit": 30.491,
+    "win_rate": 0.85,
+    "margin": 124.07,
+    "leverage": 32,
+    "notional": 3970.24,
+    "epoch_time": 1785851889.402268,
+    "time": "2026-08-04 19:28:09"
+  }
+]
