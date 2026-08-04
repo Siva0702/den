@@ -88,7 +88,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v24.1 1-Min Heartbeat Pulse Engine Active 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v25.0 Final Production Engine Active 24/7")
 
     def log_message(self, format, *args):
         return
@@ -105,37 +105,11 @@ def start_health_server():
 def self_ping_keep_alive():
     url = "https://den-quant-scanner.onrender.com/"
     while True:
-        time.sleep(120)
+        time.sleep(120) # Ping every 2 mins to keep container 100% active
         try:
             requests.get(url, timeout=10)
         except Exception:
             pass
-
-def telegram_cloud_heartbeat():
-    """
-    Pushes a live 1-minute cloud pulse to Telegram so the user can verify Render Host is active 24/7.
-    """
-    print("[✓] Starting 1-Minute Telegram Cloud Pulse Thread...", flush=True)
-    time.sleep(10) # Initial startup buffer
-    while True:
-        try:
-            active_p = len(monitor.load_positions())
-            heartbeat_msg = f"""
-🟢 **DEN ENGINE CLOUD HEARTBEAT PULSE** 🟢
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• **Render Host:** ONLINE & SCANNING 24/7 ✅
-• **Current Time:** `{time.strftime('%Y-%m-%d %H:%M:%S')} IST`
-• **Asset Universe:** `100+ Global Contracts`
-• **Active Positions:** `{active_p} / 7 Cap`
-• **Gate Criteria:** `75.0%+ Win Rate & SMC Confluence`
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[✓] Render Cloud Host is Active & Processing Market Candles 24/7/365
-"""
-            telegram.send_alert(heartbeat_msg)
-        except Exception as e:
-            print(f"[!] Heartbeat pulse exception: {e}", flush=True)
-        time.sleep(900) # Heartbeat pulse every 15 minutes to keep chat clean
-
 
 def run_continuous_quant_hunter():
     try:
@@ -143,7 +117,7 @@ def run_continuous_quant_hunter():
         learned_weights = upgrade_meta["weights"] if isinstance(upgrade_meta, dict) else {}
         universe = DynamicMarketUniverse.get_full_hunting_universe()
 
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v24.1 HEARTBEAT | Scanning {len(universe)} Global Assets...", flush=True)
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v25.0 PRODUCTION | Scanning {len(universe)} Global Assets...", flush=True)
 
         active_positions = monitor.load_positions()
         if len(active_positions) >= 7:
@@ -192,6 +166,7 @@ def run_continuous_quant_hunter():
                 if slippage_meta["is_high_slippage"]:
                     continue
 
+                # OUTCOME-BASED COOLDOWN (Suppresses ticker ONLY while position is open)
                 if not SignalCooldownEngine.can_send_signal(ticker):
                     continue
 
@@ -229,6 +204,7 @@ def run_continuous_quant_hunter():
                 
                 signal = SureShotConfluenceEngine.evaluate_setup(df, effective_multiplier, base_win_rate=base_wr_setting)
 
+                # STRICT 75.0%+ WIN RATE GATE FOR PRISTINE A+ SETUPS
                 if signal["is_sure_shot"] and signal["win_rate"] >= 0.75 and is_real:
                     direction = signal["direction"]
                     entry = current_price
@@ -288,7 +264,7 @@ def run_continuous_quant_hunter():
 • **Target Gain (Win):** `+${exact_gain_usd:,.2f} USDT` (+{roi_gain_pct}% Margin ROI)
 
 🧠 **SMC & MULTI-TIMEFRAME QUANT DRIVERS**
-• **Model Version:** `v24.1 Cloud Heartbeat Edition`
+• **Model Version:** `v25.0 Final Production Engine`
 • **SMC Setup:** `{smc_meta['smc_setup_type']}`
 • **Model Win Rate:** `{signal['win_rate']*100:.1f}%` (Strict 75%+ Non-Negotiable Gate)
 • **Stop-Hunt Defense:** `{shield_meta['status']}` (Wide SL Buffer: `{sl_multiplier}x ATR`)
@@ -298,14 +274,14 @@ def run_continuous_quant_hunter():
 • **US Regulatory Status:** `{regulatory_meta['regulatory_status']}`
 • **Volume POC / VWAP:** `${poc_meta['poc']:,.2f}` / `${signal['vwap']:,.2f}` (Aligned: `{direction}`)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[✓] Dynamic Price Precision Active (Micro Tickers Formatted Correctly)
-[✓] Render 1-Minute Cloud Heartbeat Active
+[✓] Smart Money Concepts (SMC) Fair Value Gap & Multi-Timeframe Alignment Verified
+[✓] Market Maker Stop-Hunt & Liquidity Sweep Protection Active
                     """
                     
                     is_dispatched = telegram.send_alert(alert_msg)
                     if is_dispatched:
                         SignalCooldownEngine.record_signal_sent(ticker)
-                        print(f"[✓] v24.1 SIGNAL DELIVERED SUCCESSFULLY TO TELEGRAM FOR {ticker}", flush=True)
+                        print(f"[✓] v25.0 SIGNAL DELIVERED SUCCESSFULLY TO TELEGRAM FOR {ticker}", flush=True)
 
                         positions = monitor.load_positions()
                         positions.append({
@@ -328,7 +304,7 @@ def run_continuous_quant_hunter():
         print(f"[!] Error in quant hunter loop: {loop_err}", flush=True)
 
 def start_background_scanner_loop():
-    print("🚀 Starting Den Engine v24.1 Dedicated Background Scanner Thread...", flush=True)
+    print("🚀 Starting Den Engine v25.0 Dedicated Background Scanner Thread...", flush=True)
     while True:
         try:
             run_continuous_quant_hunter()
@@ -337,24 +313,10 @@ def start_background_scanner_loop():
         time.sleep(10)
 
 if __name__ == "__main__":
-    # Clear all logs freshly on startup as requested by user
-    try:
-        with open("portfolio/active_positions.json", "w") as f:
-            json.dump([], f, indent=2)
-        with open("portfolio/signal_cooldown.json", "w") as f:
-            json.dump({}, f, indent=2)
-        with open("portfolio/trade_history.json", "w") as f:
-            json.dump({"trades": []}, f, indent=2)
-        print("[✓] Cleared active_positions.json, signal_cooldown.json, and trade_history.json freshly on startup!", flush=True)
-    except Exception as e:
-        print(f"[!] Error clearing logs on startup: {e}", flush=True)
-
     # 1. Start continuous 24/7 background quant scanner thread
     threading.Thread(target=start_background_scanner_loop, daemon=True).start()
-    # 2. Start 1-minute Telegram cloud heartbeat pulse thread
-    threading.Thread(target=telegram_cloud_heartbeat, daemon=True).start()
-    # 3. Start continuous keep-alive ping thread
+    # 2. Start continuous keep-alive ping thread
     threading.Thread(target=self_ping_keep_alive, daemon=True).start()
-    # 4. Main process serves HTTP health server so Render Web Service NEVER sleeps or suspends!
-    print("🚀 Den Engine v24.1 Serving Main Process HTTP Health Server on Render Cloud...", flush=True)
+    # 3. Main process serves HTTP health server so Render Web Service NEVER sleeps or suspends!
+    print("🚀 Den Engine v25.0 Serving Main Process HTTP Health Server on Render Cloud...", flush=True)
     start_health_server()
