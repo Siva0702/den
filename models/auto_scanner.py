@@ -224,6 +224,8 @@ def run_continuous_quant_hunter():
         signals_dispatched = 0
         assets_skipped_no_data = 0
 
+        candidates = []
+
         for item in universe:
             try:
                 ticker = item["ticker"]
@@ -297,12 +299,11 @@ def run_continuous_quant_hunter():
 
                 signal = SureShotConfluenceEngine.evaluate_setup(df, effective_multiplier, base_win_rate=base_wr_setting)
 
-                # ---- 70%+ HIGH-CONVICTION WIN RATE GATE ----
-                if signal["is_sure_shot"] and signal["win_rate"] >= 0.70:
+                # ---- STRICT 75.0%+ WIN RATE GATE ----
+                if signal["is_sure_shot"] and signal["win_rate"] >= 0.75:
                     direction = signal["direction"]
                     entry = current_price
 
-                    # ---- KELLY CRITERION POSITION SIZING ----
                     reward_risk_ratio = 3.0
                     kelly = kelly_position_size(signal["win_rate"], reward_risk_ratio, ACCOUNT_BALANCE)
                     target_risk_usd = kelly["dollars_at_risk"]
@@ -339,10 +340,60 @@ def run_continuous_quant_hunter():
                     roi_gain_pct = round((exact_gain_usd / max(final_margin, 0.01)) * 100, 1)
                     win_rate_pct = round(signal["win_rate"] * 100, 1)
 
-                    dir_emoji = "🟢" if direction == "LONG" else "🔴"
-                    action_str = "LONG (BUY)" if direction == "LONG" else "SHORT (SELL)"
+                    candidates.append({
+                        "ticker": ticker,
+                        "direction": direction,
+                        "entry": entry,
+                        "sl": sl,
+                        "tp": tp,
+                        "sl_pct": sl_pct,
+                        "tp_pct": tp_pct,
+                        "win_rate": signal["win_rate"],
+                        "win_rate_pct": win_rate_pct,
+                        "expected_value": signal.get("expected_value", 0.0),
+                        "kelly": kelly,
+                        "final_margin": final_margin,
+                        "actual_notional": actual_notional,
+                        "exact_gain_usd": exact_gain_usd,
+                        "exact_loss_usd": exact_loss_usd,
+                        "roi_gain_pct": roi_gain_pct,
+                        "chosen_leverage": chosen_leverage,
+                        "duration_meta": duration_meta,
+                        "lev_meta": lev_meta
+                    })
 
-                    alert_msg = f"""
+            except Exception as item_err:
+                print(f"[!] Error scanning {item.get('ticker', '?')}: {item_err}", flush=True)
+                continue
+
+        # ---- SELECT ONLY THE TOP #1 BEST CANDIDATE (ZERO SPAM, MAXIMUM ACCURACY) ----
+        if candidates:
+            # Sort by Win Rate descending, then Expected Value descending
+            candidates.sort(key=lambda x: (x["win_rate"], x["expected_value"]), reverse=True)
+            best = candidates[0]
+
+            ticker = best["ticker"]
+            direction = best["direction"]
+            entry = best["entry"]
+            sl = best["sl"]
+            tp = best["tp"]
+            sl_pct = best["sl_pct"]
+            tp_pct = best["tp_pct"]
+            win_rate_pct = best["win_rate_pct"]
+            kelly = best["kelly"]
+            final_margin = best["final_margin"]
+            actual_notional = best["actual_notional"]
+            exact_gain_usd = best["exact_gain_usd"]
+            exact_loss_usd = best["exact_loss_usd"]
+            roi_gain_pct = best["roi_gain_pct"]
+            chosen_leverage = best["chosen_leverage"]
+            duration_meta = best["duration_meta"]
+            lev_meta = best["lev_meta"]
+
+            dir_emoji = "🟢" if direction == "LONG" else "🔴"
+            action_str = "LONG (BUY)" if direction == "LONG" else "SHORT (SELL)"
+
+            alert_msg = f"""
 {dir_emoji} **{action_str}: {ticker}**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🏆 **WIN RATE:** `{win_rate_pct}%` | Kelly Risk: `{kelly['risk_pct']}%`
@@ -356,65 +407,60 @@ def run_continuous_quant_hunter():
 ⏱️ **EST. HORIZON:** `{duration_meta['formatted_label']}`
 🏛️ **EXCHANGE:** `{lev_meta['primary_exchange']}`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-✅ Real-Time Binance Futures Price Verified
-✅ SMC + Multi-Timeframe Alignment Confirmed
-                    """
+✅ Top #1 High-Conviction Quant Setup Selection
+✅ Real-Time Exchange Data Verified
+            """
 
-                    is_dispatched = telegram.send_alert(alert_msg)
-                    if is_dispatched:
-                        SignalCooldownEngine.record_signal_sent(ticker)
-                        signals_dispatched += 1
-                        print(f"[✓] SIGNAL #{signals_dispatched} DISPATCHED: {ticker} {direction} @ {format_price_dynamic(entry)}", flush=True)
+            is_dispatched = telegram.send_alert(alert_msg)
+            if is_dispatched:
+                SignalCooldownEngine.record_signal_sent(ticker)
+                signals_dispatched += 1
+                scanner_state["last_signal"] = f"{ticker} {direction} @ {entry}"
+                print(f"[✓] TOP #1 SIGNAL DISPATCHED: {ticker} {direction} @ {format_price_dynamic(entry)} (WR={win_rate_pct}%)", flush=True)
 
-                        # Save position with margin/leverage for real PnL tracking later
-                        positions = monitor.load_positions()
-                        updated_positions = [p for p in positions if p.get("ticker") != ticker]
-                        updated_positions.append({
-                            "ticker": ticker,
-                            "direction": direction,
-                            "entry_price": entry,
-                            "stop_loss": sl,
-                            "take_profit": tp,
-                            "win_rate": signal["win_rate"],
-                            "margin": final_margin,
-                            "leverage": chosen_leverage,
-                            "notional": actual_notional,
-                            "epoch_time": time.time(),
-                            "time": time.strftime('%Y-%m-%d %H:%M:%S')
-                        })
-                        monitor.save_positions(updated_positions)
+                positions = monitor.load_positions()
+                updated_positions = [p for p in positions if p.get("ticker") != ticker]
+                updated_positions.append({
+                    "ticker": ticker,
+                    "direction": direction,
+                    "entry_price": entry,
+                    "stop_loss": sl,
+                    "take_profit": tp,
+                    "win_rate": best["win_rate"],
+                    "margin": final_margin,
+                    "leverage": chosen_leverage,
+                    "notional": actual_notional,
+                    "epoch_time": time.time(),
+                    "time": time.strftime('%Y-%m-%d %H:%M:%S')
+                })
+                monitor.save_positions(updated_positions)
 
-                        # Append to dispatched signals log
-                        os.makedirs("portfolio", exist_ok=True)
-                        disp_file = "portfolio/dispatched_signals.json"
+                os.makedirs("portfolio", exist_ok=True)
+                disp_file = "portfolio/dispatched_signals.json"
+                dispatched = []
+                if os.path.exists(disp_file):
+                    try:
+                        with open(disp_file, "r") as f:
+                            dispatched = json.load(f)
+                    except Exception:
                         dispatched = []
-                        if os.path.exists(disp_file):
-                            try:
-                                with open(disp_file, "r") as f:
-                                    dispatched = json.load(f)
-                            except Exception:
-                                dispatched = []
-                        dispatched.append({
-                            "ticker": ticker,
-                            "direction": direction,
-                            "entry_price": entry,
-                            "stop_loss": sl,
-                            "take_profit": tp,
-                            "win_rate": signal["win_rate"],
-                            "margin": final_margin,
-                            "leverage": chosen_leverage,
-                            "status": "DISPATCHED",
-                            "time": time.strftime('%Y-%m-%d %H:%M:%S')
-                        })
-                        try:
-                            with open(disp_file, "w") as f:
-                                json.dump(dispatched, f, indent=2)
-                        except Exception as e:
-                            print(f"[!] Error writing dispatched_signals.json: {e}")
-
-            except Exception as item_err:
-                print(f"[!] Error scanning {item.get('ticker', '?')}: {item_err}", flush=True)
-                continue
+                dispatched.append({
+                    "ticker": ticker,
+                    "direction": direction,
+                    "entry_price": entry,
+                    "stop_loss": sl,
+                    "take_profit": tp,
+                    "win_rate": best["win_rate"],
+                    "margin": final_margin,
+                    "leverage": chosen_leverage,
+                    "status": "DISPATCHED",
+                    "time": time.strftime('%Y-%m-%d %H:%M:%S')
+                })
+                try:
+                    with open(disp_file, "w") as f:
+                        json.dump(dispatched, f, indent=2)
+                except Exception as e:
+                    print(f"[!] Error writing dispatched_signals.json: {e}")
 
         scanner_state["last_scan_time"] = time.strftime('%Y-%m-%d %H:%M:%S')
         scanner_state["total_scans"] += 1
