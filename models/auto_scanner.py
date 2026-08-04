@@ -34,15 +34,6 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID") or "7347569157"
 
 ACCOUNT_BALANCE = 1000.0
 ENGINE_VERSION = "v38.2"
-RELEASE_NOTES = [
-    "87 Active Multi-Sector Assets (SPY, QQQ, IWM, Tech, Defense, Healthcare, Bullion)",
-    "Real-Time Legislative & Political News Tracking (Clarity Act / Congressional Recess)",
-    "0-to-100 Dynamic Win Rate Scoring (25+ Confluence Dimensions)",
-    "Bitunix / WEEX Perpetual Futures Data & Leverage Calibration",
-    "Interactive 'positioned' Telegram Trade Tracking Active"
-]
-
-VERSION_FILE = "portfolio/system_version.json"
 
 monitor = ActivePositionMonitor(BOT_TOKEN, CHAT_ID)
 telegram = TelegramAlertBot(BOT_TOKEN, CHAT_ID)
@@ -52,38 +43,6 @@ dispatched_message_ids = {}  # {message_id: ticker}
 last_update_id = 0
 last_signal_time = time.time()
 last_digest_time = 0
-
-def notify_upgrade_release_once():
-    """Sends Telegram notification ONLY when a NEW version upgrade is deployed."""
-    os.makedirs("portfolio", exist_ok=True)
-    version_state = {}
-    if os.path.exists(VERSION_FILE):
-        try:
-            with open(VERSION_FILE, "r") as f:
-                version_state = json.load(f)
-        except Exception:
-            version_state = {}
-
-    last_notified = version_state.get("last_notified_version")
-    if last_notified != ENGINE_VERSION:
-        notes_formatted = "\n".join([f"• {note} ✅" for note in RELEASE_NOTES])
-        alert_msg = f"""🚀 **DEN ENGINE UPGRADE RELEASED: {ENGINE_VERSION}**
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 **WHAT'S NEW IN THIS RELEASE:**
-{notes_formatted}
-
-🏛️ **EXCHANGE:** Bitunix & WEEX Futures
-⏰ **DEPLOYED:** `{time.strftime('%Y-%m-%d %H:%M:%S UTC')}`
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
-        try:
-            telegram.send_alert(alert_msg)
-            print(f"[✓] Deployed new upgrade release alert for {ENGINE_VERSION}", flush=True)
-            version_state["last_notified_version"] = ENGINE_VERSION
-            version_state["release_time"] = time.strftime('%Y-%m-%d %H:%M:%S UTC')
-            with open(VERSION_FILE, "w") as f:
-                json.dump(version_state, f, indent=2)
-        except Exception as e:
-            print(f"[!] Version upgrade alert error: {e}", flush=True)
 
 # ============================================================
 # PRICE FORMATTING — Dynamic precision based on actual price
@@ -584,9 +543,6 @@ _Reply **positioned** to track this trade_"""
 def start_background_scanner_loop():
     print(f"🚀 Den Engine {ENGINE_VERSION} Quant System Background Scanner Starting...", flush=True)
     scanner_state["status"] = "INITIALIZING"
-
-    # Send one-time Telegram alert ONLY when a new version upgrade is deployed
-    notify_upgrade_release_once()
 
     # Quick connectivity test
     try:
