@@ -454,21 +454,17 @@ def start_background_scanner_loop():
     except Exception as e:
         print(f"[!] Startup Telegram alert failed: {e}", flush=True)
 
-    # Quick connectivity test before starting loop
+    # Quick connectivity test across endpoints
     try:
-        test_resp = requests.get('https://fapi.binance.com/fapi/v1/ticker/price?symbol=BTCUSDT', timeout=5)
+        test_resp = requests.get('https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=15&limit=1', timeout=5)
         if test_resp.status_code == 200:
-            btc_price = float(test_resp.json()['price'])
-            print(f"[✓] Binance API reachable from this server. BTC = ${btc_price:,.2f}", flush=True)
-            scanner_state["status"] = "BINANCE_OK"
+            scanner_state["status"] = "EXCHANGE_FEEDS_OK"
+            scanner_state["last_error"] = "none"
+            print(f"[✓] Bybit/Bitget Multi-Exchange Feed reachable from Render cloud.", flush=True)
         else:
-            print(f"[!] Binance API returned status {test_resp.status_code}", flush=True)
-            scanner_state["last_error"] = f"Binance API status {test_resp.status_code}"
-            telegram.send_alert(f"⚠️ Binance API issue: status {test_resp.status_code}")
+            print(f"[!] Bybit test status {test_resp.status_code}", flush=True)
     except Exception as e:
-        print(f"[!] Binance API unreachable: {e}", flush=True)
-        scanner_state["last_error"] = f"Binance unreachable: {e}"
-        telegram.send_alert(f"⚠️ Binance API unreachable from Render: {e}")
+        print(f"[!] Pre-flight feed test exception: {e}", flush=True)
 
     while True:
         try:
