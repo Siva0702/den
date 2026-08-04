@@ -94,14 +94,36 @@ def format_price_raw(price: float) -> float:
         return round(price, 2)
 
 # ============================================================
-# RENDER CLOUD HEALTH CHECK SERVER
+# SCANNER STATE — Shared diagnostic state for health endpoint
+# ============================================================
+scanner_state = {
+    "status": "STARTING",
+    "last_scan_time": "never",
+    "total_scans": 0,
+    "total_signals_sent": 0,
+    "last_signal": "none",
+    "last_error": "none",
+    "assets_in_universe": 0,
+}
+
+# ============================================================
+# RENDER CLOUD HEALTH + DIAGNOSTICS SERVER
 # ============================================================
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Den Engine v35.0 Active 24/7 | Real Binance Futures Data")
+        status_text = (
+            f"Den Engine v35.0 | Status: {scanner_state['status']}\n"
+            f"Last Scan: {scanner_state['last_scan_time']}\n"
+            f"Total Scans: {scanner_state['total_scans']}\n"
+            f"Total Signals Sent: {scanner_state['total_signals_sent']}\n"
+            f"Last Signal: {scanner_state['last_signal']}\n"
+            f"Last Error: {scanner_state['last_error']}\n"
+            f"Universe Size: {scanner_state['assets_in_universe']}\n"
+        )
+        self.wfile.write(status_text.encode('utf-8'))
 
     def log_message(self, format, *args):
         return
@@ -394,29 +416,74 @@ def run_continuous_quant_hunter():
                 print(f"[!] Error scanning {item.get('ticker', '?')}: {item_err}", flush=True)
                 continue
 
-        print(f"[{time.strftime('%H:%M:%S')}] Scan complete: {signals_dispatched} signals dispatched, {assets_skipped_no_data} assets skipped (no real data)", flush=True)
+        scanner_state["last_scan_time"] = time.strftime('%Y-%m-%d %H:%M:%S')
+        scanner_state["total_scans"] += 1
+        scanner_state["total_signals_sent"] += signals_dispatched
+        scanner_state["status"] = "RUNNING"
+        print(f"[{time.strftime('%H:%M:%S')}] Scan #{scanner_state['total_scans']} complete: {signals_dispatched} signals, {assets_skipped_no_data} skipped", flush=True)
 
     except Exception as loop_err:
-        print(f"[!] CRITICAL scan loop error: {loop_err}", flush=True)
+        error_msg = f"{type(loop_err).__name__}: {loop_err}"
+        scanner_state["last_error"] = error_msg
+        scanner_state["status"] = "ERROR_RECOVERING"
+        print(f"[!] CRITICAL scan loop error: {error_msg}", flush=True)
         traceback.print_exc()
+        # Report crash to Telegram so user can see what's wrong
+        try:
+            telegram.send_alert(f"⚠️ **Scanner Error**\n```\n{error_msg}\n```\nRecovering in 15s...")
+        except Exception:
+            pass
 
 # ============================================================
 # BACKGROUND SCANNER LOOP — Runs every 15 seconds on Render
 # ============================================================
 def start_background_scanner_loop():
     print("🚀 Den Engine v35.0 Background Scanner Starting...", flush=True)
-    # Send startup notification
+    scanner_state["status"] = "INITIALIZING"
+
+    # Send startup notification to Telegram
     try:
-        telegram.send_alert("🚀 **Den Engine v35.0 Online**\n━━━━━━━━━━━━━━━━━━━━━━━━\n✅ Real Binance Futures Data\n✅ Kelly Criterion Sizing\n✅ Auto-Dispatch Active 24/7")
-    except Exception:
-        pass
+        telegram.send_alert(
+            "🚀 **Den Engine v35.0 Online**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "✅ Real Binance Futures Data\n"
+            "✅ Kelly Criterion Sizing\n"
+            "✅ Auto-Dispatch Active 24/7\n"
+            f"⏰ Server Time: {time.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+        )
+    except Exception as e:
+        print(f"[!] Startup Telegram alert failed: {e}", flush=True)
+
+    # Quick connectivity test before starting loop
+    try:
+        test_resp = requests.get('https://fapi.binance.com/fapi/v1/ticker/price?symbol=BTCUSDT', timeout=5)
+        if test_resp.status_code == 200:
+            btc_price = float(test_resp.json()['price'])
+            print(f"[✓] Binance API reachable from this server. BTC = ${btc_price:,.2f}", flush=True)
+            scanner_state["status"] = "BINANCE_OK"
+        else:
+            print(f"[!] Binance API returned status {test_resp.status_code}", flush=True)
+            scanner_state["last_error"] = f"Binance API status {test_resp.status_code}"
+            telegram.send_alert(f"⚠️ Binance API issue: status {test_resp.status_code}")
+    except Exception as e:
+        print(f"[!] Binance API unreachable: {e}", flush=True)
+        scanner_state["last_error"] = f"Binance unreachable: {e}"
+        telegram.send_alert(f"⚠️ Binance API unreachable from Render: {e}")
 
     while True:
         try:
+            scanner_state["status"] = "SCANNING"
             run_continuous_quant_hunter()
         except Exception as e:
-            print(f"[!] Scanner loop exception (recovering): {e}", flush=True)
+            error_msg = f"{type(e).__name__}: {e}"
+            scanner_state["last_error"] = error_msg
+            scanner_state["status"] = "ERROR_RECOVERING"
+            print(f"[!] Scanner loop exception (recovering): {error_msg}", flush=True)
             traceback.print_exc()
+            try:
+                telegram.send_alert(f"⚠️ **Scanner Loop Crash**\n```\n{error_msg}\n```")
+            except Exception:
+                pass
         time.sleep(15)
 
 # ============================================================
