@@ -17,6 +17,7 @@ class BitunixWeexLiveFeed:
     TICKER_MAP = {
         "PEPE/USDT": {"symbol": "1000PEPEUSDT", "divisor": 1000.0},
         "SHIB/USDT": {"symbol": "1000SHIBUSDT", "divisor": 1000.0},
+        "BONK/USDT": {"symbol": "1000BONKUSDT", "divisor": 1000.0},
         "MATIC/USDT": {"symbol": "POLUSDT", "divisor": 1.0},
     }
 
