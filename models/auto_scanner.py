@@ -120,9 +120,7 @@ def run_continuous_quant_hunter():
         print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v26.0 REDESIGN | Scanning {len(universe)} Global Assets...", flush=True)
 
         active_positions = monitor.load_positions()
-        if len(active_positions) >= 7:
-            print(f"[🛡️] Multi-Position Cap Reached ({len(active_positions)} active trades). Scanner pausing new signal generation.", flush=True)
-            return
+        active_tickers = [p.get("ticker") for p in active_positions if isinstance(p, dict)]
 
         emergency_meta = EmergencyMacroWireEngine.scan_emergency_wire()
         wire_multiplier = emergency_meta["wire_multiplier"]
