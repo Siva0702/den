@@ -266,25 +266,40 @@ class ActivePositionMonitor:
                     urgency = inv_meta["urgency_label"]
                     saved_usd = inv_meta["saved_usd"]
                     factors_text = "\n".join([f"• {f}" for f in inv_meta["factors"]])
-                    
                     dir_dot = "🟢" if direction == "LONG" else "🔴"
 
-                    msg = f"""
-🚨 **EARLY EXIT COMMAND: {ticker} INVALIDATION SCORE {inv_score}%** {dir_dot}
+                    if inv_score >= 75:
+                        msg = f"""
+🚨 **URGENT COMMAND: CLOSE {ticker} IMMEDIATELY AT MARKET!** {dir_dot}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚡ **100% HIGH-CONFIDENCE INVALIDATION ({inv_score}% SCORE)**
+📍 **Entry:** `{self._format_price(entry)}`
+⚡ **Current Price:** `{self._format_price(current_price)}`
+📉 **Unrealized PnL:** `${pnl_data['pnl_usd']:,.2f} USDT` ({pnl_data['roi_pct']}% ROI)
+💵 **CAPITAL SAVED VS SL:** `+${saved_usd:,.2f} USDT` (Preserves margin!)
+
+📋 **HIGH-CONFIDENCE INVALIDATION REASONS:**
+{factors_text}
+
+🔥 **ACTION REQUIRED:** Close trade AT MARKET on Bitunix/Weex IMMEDIATELY to prevent full SL loss!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                        """
+                    else:
+                        msg = f"""
+⚠️ **EARLY EXIT WARNING: {ticker} INVALIDATION SCORE {inv_score}%** {dir_dot}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📊 **URGENCY:** `{urgency}`
 📍 **Entry:** `{self._format_price(entry)}`
 ⚡ **Current Price:** `{self._format_price(current_price)}`
-🛡️ **Original SL:** `{self._format_price(sl)}` | **TP:** `{self._format_price(tp)}`
 📉 **Unrealized PnL:** `${pnl_data['pnl_usd']:,.2f} USDT` ({pnl_data['roi_pct']}% ROI)
 💵 **Capital Saved vs SL:** `+${saved_usd:,.2f} USDT`
 
-📋 **INVALIDATION DIMENSIONS ({inv_score}% Conviction):**
+📋 **INVALIDATION DIMENSIONS:**
 {factors_text}
 
-⚡ **ACTION:** CLOSE POSITION NOW AT MARKET to preserve capital & prevent full SL loss!
+⚡ **ACTION:** Consider closing position early at market to preserve capital.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                    """
+                        """
                     self.send_telegram_alert(msg)
                     self.notified_milestones[alert_key] = True
                 remaining_positions.append(pos)
