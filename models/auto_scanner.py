@@ -49,8 +49,8 @@ from nlp.ensemble_sentiment import HuggingFaceEnsembleSentimentEngine
 from alerts.telegram_bot import TelegramAlertBot
 
 load_dotenv()
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or "8847828896:AAFcTqjJGe6VN6mbPHcB1QTlvkpQxhb5ntI"
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID") or "7347569157"
 
 ACCOUNT_BALANCE = 1000.0
 

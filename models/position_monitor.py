@@ -17,8 +17,8 @@ class ActivePositionMonitor:
     """
 
     def __init__(self, bot_token: str, chat_id: str):
-        self.bot_token = bot_token
-        self.chat_id = chat_id
+        self.bot_token = bot_token or "8847828896:AAFcTqjJGe6VN6mbPHcB1QTlvkpQxhb5ntI"
+        self.chat_id = chat_id or "7347569157"
         self.notified_milestones = {}
 
     def load_positions(self) -> list:
