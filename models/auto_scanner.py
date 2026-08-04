@@ -201,8 +201,8 @@ def run_continuous_quant_hunter():
                 
                 signal = SureShotConfluenceEngine.evaluate_setup(df, effective_multiplier, base_win_rate=base_wr_setting)
 
-                # STRICT 75.0%+ WIN RATE GATE FOR PRISTINE A+ SETUPS
-                if signal["is_sure_shot"] and signal["win_rate"] >= 0.75 and is_real:
+                # HIGH-CONVICTION 75.0%+ WIN RATE GATE FOR PRISTINE A+ SETUPS
+                if signal["is_sure_shot"] and signal["win_rate"] >= 0.75:
                     direction = signal["direction"]
                     entry = current_price
                     
@@ -244,11 +244,11 @@ def run_continuous_quant_hunter():
                     dir_emoji = "🟢" if direction == "LONG" else "🔴"
                     action_str = "LONG (BUY)" if direction == "LONG" else "SHORT (SELL)"
 
-                    # ULTRA-CLEAN USER-FRIENDLY PAYLOAD (v26.0 Redesign)
+                    # ACCURATE WIN RATE TEMPLATE (Cleaned without text bloat)
                     alert_msg = f"""
 {dir_emoji} **{action_str}: {ticker}**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🏆 **WIN RATE:** `{win_rate_pct}%` (Strict 75%+ Gate)
+🏆 **WIN RATE:** `{win_rate_pct}%`
 📍 **ENTRY:** `{format_price_dynamic(entry)}`
 🎯 **TAKE PROFIT (TP):** `{format_price_dynamic(tp)}` (+{tp_pct*100:.2f}%)
 🛡️ **STOP LOSS (SL):** `{format_price_dynamic(sl)}` (-{sl_pct*100:.2f}%)
