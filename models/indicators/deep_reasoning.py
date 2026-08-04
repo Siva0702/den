@@ -41,11 +41,11 @@ class DeepReasoningQuantEngine:
             authenticity_score = 0.60
 
         # 2. Fakeout Volume vs Taker Imbalance Divergence
-        if direction == "LONG" and taker_buy_ratio < 55.0:
+        if direction == "LONG" and taker_buy_ratio < 48.0:
             is_manipulated = True
             reasoning_verdict = "MANIPULATED_FAKEOUT (Volume spike lacks real Taker buying)"
             authenticity_score = 0.65
-        elif direction == "SHORT" and taker_buy_ratio > 45.0:
+        elif direction == "SHORT" and taker_buy_ratio > 52.0:
             is_manipulated = True
             reasoning_verdict = "MANIPULATED_FAKEOUT (Volume spike lacks real Taker selling)"
             authenticity_score = 0.65
