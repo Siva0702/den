@@ -91,10 +91,4 @@ class TelegramAlertBot:
         return replies, new_last_update_id
 
 if __name__ == "__main__":
-    import os
-    BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or "8847828896:AAFcTqjJGe6VN6mbPHcB1QTlvkpQxhb5ntI"
-    CHAT_ID = os.getenv("TELEGRAM_CHAT_ID") or "7347569157"
-    
-    bot = TelegramAlertBot(BOT_TOKEN, CHAT_ID)
-    res = bot.send_alert("🚀 Telegram Alert Bot v32.0 Initialized & Verified.")
-    print("Telegram Alert Test Result:", res)
+    print("TelegramAlertBot module ready.")

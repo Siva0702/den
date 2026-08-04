@@ -84,13 +84,13 @@ def run_a_to_z_quant_pipeline(
 
     print(alert_msg)
 
-    # 6. Dispatch Alert via Telegram Bot
-    token = telegram_token or os.getenv("TELEGRAM_BOT_TOKEN")
-    chat_id = telegram_chat_id or os.getenv("TELEGRAM_CHAT_ID")
-    if token and chat_id and token != "YOUR_TELEGRAM_BOT_TOKEN_HERE":
-        bot = TelegramAlertBot(token, chat_id)
-        bot.send_alert(alert_msg)
-        print("[✓] Push alert dispatched to phone.")
+    # 6. Dispatch Alert via Telegram Bot (Disabled in master_pipeline, managed by auto_scanner)
+    # token = telegram_token or os.getenv("TELEGRAM_BOT_TOKEN")
+    # chat_id = telegram_chat_id or os.getenv("TELEGRAM_CHAT_ID")
+    # if token and chat_id and token != "YOUR_TELEGRAM_BOT_TOKEN_HERE":
+    #     bot = TelegramAlertBot(token, chat_id)
+    #     bot.send_alert(alert_msg)
+    print("[✓] Pipeline evaluation complete.")
 
 if __name__ == "__main__":
     import numpy as np

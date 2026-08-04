@@ -509,20 +509,6 @@ def start_background_scanner_loop():
     print(f"🚀 Den Engine {ENGINE_VERSION} Quant System Background Scanner Starting...", flush=True)
     scanner_state["status"] = "INITIALIZING"
 
-    try:
-        telegram.send_alert(
-            f"🚀 **Den Engine {ENGINE_VERSION} Online**\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "✅ 0-to-100 Dynamic Scoring (25+ Dimensions)\n"
-            "✅ Multi-Timeframe Analysis (1D/4H/1H/15m)\n"
-            "✅ Self-Learning Feedback Loop Active\n"
-            "✅ Reply 'positioned' to track your trades\n"
-            f"🏛️ Exchange: Bitunix / Weex Futures\n"
-            f"⏰ Server Time: {time.strftime('%Y-%m-%d %H:%M:%S UTC')}"
-        )
-    except Exception as e:
-        print(f"[!] Startup Telegram alert failed: {e}", flush=True)
-
     # Quick connectivity test
     try:
         test_resp = requests.get('https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=15&limit=1', timeout=5)
