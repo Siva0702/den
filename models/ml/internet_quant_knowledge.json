@@ -1,0 +1,13 @@
+{
+  "last_scanned": "2026-08-04",
+  "volatility_expansion_mult": 1.25,
+  "momentum_velocity_threshold": 1.15,
+  "hf_sentiment_weight": 1.15,
+  "quant_strategies_active": [
+    "SMC_OrderBlock",
+    "VWAP_Reclaim",
+    "BB_Squeeze_Explosion",
+    "Multi_Model_HF_Ensemble"
+  ],
+  "learned_insights": "High velocity breakouts out of 15m compression yield 84%+ 1-hour TP hit rates."
+}

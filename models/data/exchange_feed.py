@@ -5,23 +5,38 @@ import numpy as np
 
 class BitunixWeexLiveFeed:
     """
-    Den Engine v34.0 Direct Bitunix & WEEX Orderbook Exchange Feed Adapter:
-    Fetches raw, penny-exact orderbook prices directly matching your Bitunix/WEEX app
-    (COPPER/USDT = $6.667, XAG/USDT = $59.90, XAU/USDT = $4072.00)!
+    Den Engine v35.0 Direct Binance Futures Exchange Feed:
+    Fetches REAL kline data from Binance Futures API (same data source as Bitunix/Weex).
+    Returns (None, False) if real data is unavailable — NEVER generates fake prices.
     """
 
     HEADERS = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
+    # Tickers that need remapping on Binance Futures
+    TICKER_MAP = {
+        "PEPE/USDT": {"symbol": "1000PEPEUSDT", "divisor": 1000.0},
+        "MATIC/USDT": {"symbol": "POLUSDT", "divisor": 1.0},
+    }
+
     @classmethod
     def get_exchange_ohlcv(cls, ticker: str, base_price: float = 100.0) -> tuple:
-        symbol_clean = ticker.replace("/", "").upper()
+        """Fetch real 15m klines from Binance Futures. Returns (DataFrame, is_real)."""
         
-        # 1. Primary Binance / Bitunix Futures REST API
-        futures_url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol_clean}&interval=15m&limit=100"
+        # Resolve ticker mapping
+        mapping = cls.TICKER_MAP.get(ticker)
+        if mapping:
+            symbol = mapping["symbol"]
+            divisor = mapping["divisor"]
+        else:
+            symbol = ticker.replace("/", "").upper()
+            divisor = 1.0
+
+        # Binance Futures klines API
+        url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval=15m&limit=100"
         try:
-            resp = requests.get(futures_url, headers=cls.HEADERS, timeout=3)
+            resp = requests.get(url, headers=cls.HEADERS, timeout=5)
             if resp.status_code == 200:
                 raw_klines = resp.json()
                 if isinstance(raw_klines, list) and len(raw_klines) > 0:
@@ -29,65 +44,16 @@ class BitunixWeexLiveFeed:
                     for k in raw_klines:
                         records.append({
                             'timestamp': int(k[0]),
-                            'open': float(k[1]),
-                            'high': float(k[2]),
-                            'low': float(k[3]),
-                            'close': float(k[4]),
-                            'volume': float(k[5])
+                            'open': float(k[1]) / divisor,
+                            'high': float(k[2]) / divisor,
+                            'low': float(k[3]) / divisor,
+                            'close': float(k[4]) / divisor,
+                            'volume': float(k[5]) * divisor  # Scale volume inversely
                         })
                     return pd.DataFrame(records), True
-        except Exception:
-            pass
-
-        # 2. Secondary Bitunix Public Futures Market API
-        bitunix_url = f"https://api.bitunix.com/api/v1/futures/market/kline?symbol={symbol_clean}&interval=15m&limit=100"
-        try:
-            resp = requests.get(bitunix_url, headers=cls.HEADERS, timeout=3)
-            if resp.status_code == 200:
-                json_data = resp.json()
-                if json_data.get("code") == 0 and "data" in json_data and len(json_data["data"]) > 0:
-                    raw_klines = json_data["data"]
-                    records = []
-                    for k in raw_klines:
-                        records.append({
-                            'timestamp': int(k[0]),
-                            'open': float(k[1]),
-                            'high': float(k[2]),
-                            'low': float(k[3]),
-                            'close': float(k[4]),
-                            'volume': float(k[5])
-                        })
-                    return pd.DataFrame(records), True
-        except Exception:
-            pass
-
-        # 3. Dynamic Precision Anchor Matching Bitunix Futures App Orderbooks Exactly
-        real_anchor = base_price
-        if "XAG" in ticker:
-            real_anchor = 59.80
-        elif "COPPER" in ticker:
-            real_anchor = 6.667
-        elif "XAU" in ticker:
-            real_anchor = 4072.00
-
-        timestamps = [int(pd.Timestamp.now().timestamp() * 1000) - i * 900000 for i in range(100, 0, -1)]
-        np.random.seed(int(sum(ord(c) for c in ticker)))
-        returns = np.random.normal(0.0001, 0.002, 100)
-        prices = real_anchor * np.exp(np.cumsum(returns))
-        
-        records = []
-        for i in range(100):
-            p = prices[i]
-            h = p * (1 + abs(np.random.normal(0, 0.0008)))
-            l = p * (1 - abs(np.random.normal(0, 0.0008)))
-            v = np.random.uniform(500, 5000)
-            records.append({
-                'timestamp': timestamps[i],
-                'open': round(p, 3 if real_anchor < 10 else 2),
-                'high': round(h, 3 if real_anchor < 10 else 2),
-                'low': round(l, 3 if real_anchor < 10 else 2),
-                'close': round(p, 3 if real_anchor < 10 else 2),
-                'volume': round(v, 2)
-            })
-        
-        return pd.DataFrame(records), True
+            # Binance returned an error for this symbol
+            print(f"[!] Binance Futures: {symbol} not found (status {resp.status_code})")
+            return None, False
+        except Exception as e:
+            print(f"[!] Binance Futures fetch error for {symbol}: {e}")
+            return None, False

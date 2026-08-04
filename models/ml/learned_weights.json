@@ -1,0 +1,10 @@
+{
+  "base_win_rate": 0.58,
+  "rsi_sweet_spot_min": 50.0,
+  "rsi_sweet_spot_max": 62.0,
+  "sentiment_weight": 1.0,
+  "vwap_weight": 1.0,
+  "consecutive_wins": 0,
+  "consecutive_losses": 0,
+  "version": "7.0_self_learned"
+}

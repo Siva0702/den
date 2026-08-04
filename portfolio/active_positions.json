@@ -1,1 +1,67 @@
-[]
+[
+  {
+    "ticker": "BTC/USDT",
+    "direction": "LONG",
+    "entry_price": 63916.0,
+    "stop_loss": 63404.67,
+    "take_profit": 65449.98,
+    "win_rate": 0.85,
+    "margin": 125.0,
+    "leverage": 50,
+    "notional": 6250.0,
+    "epoch_time": 1785849327.1054888,
+    "time": "2026-08-04 18:45:27"
+  },
+  {
+    "ticker": "MATIC/USDT",
+    "direction": "LONG",
+    "entry_price": 0.0751,
+    "stop_loss": 0.0745,
+    "take_profit": 0.0769,
+    "win_rate": 0.8232,
+    "margin": 125.17,
+    "leverage": 50,
+    "notional": 6258.5,
+    "epoch_time": 1785849337.9936562,
+    "time": "2026-08-04 18:45:37"
+  },
+  {
+    "ticker": "NVDA/USDT",
+    "direction": "LONG",
+    "entry_price": 210.5,
+    "stop_loss": 208.82,
+    "take_profit": 215.55,
+    "win_rate": 0.85,
+    "margin": 125.3,
+    "leverage": 50,
+    "notional": 6265.0,
+    "epoch_time": 1785849341.926948,
+    "time": "2026-08-04 18:45:41"
+  },
+  {
+    "ticker": "XAU/USDT",
+    "direction": "LONG",
+    "entry_price": 4072.3,
+    "stop_loss": 4039.72,
+    "take_profit": 4170.04,
+    "win_rate": 0.8232,
+    "margin": 124.99,
+    "leverage": 50,
+    "notional": 6249.5,
+    "epoch_time": 1785849347.850394,
+    "time": "2026-08-04 18:45:47"
+  },
+  {
+    "ticker": "XAG/USDT",
+    "direction": "LONG",
+    "entry_price": 59.61,
+    "stop_loss": 59.133,
+    "take_profit": 61.041,
+    "win_rate": 0.85,
+    "margin": 124.97,
+    "leverage": 50,
+    "notional": 6248.5,
+    "epoch_time": 1785849349.191641,
+    "time": "2026-08-04 18:45:49"
+  }
+]

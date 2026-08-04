@@ -7,9 +7,9 @@ EFFICIENCY_FILE = "audit/engine_efficiency.json"
 
 class EngineEfficiencyTracker:
     """
-    Den Engine v27.0 Real-Time Engine Accuracy & Efficiency Audit System:
-    Tracks every dispatched signal's outcome (Hit TP or Hit SL) regardless of whether the user executed it.
-    Calculates Realized Win Rate %, Net Engine PnL, and Profit Factor.
+    Den Engine v35.0 Real-Time Engine Accuracy Tracker:
+    Records ONLY actual TP/SL outcomes with REAL calculated PnL.
+    Win Rate = Wins / (Wins + Losses) from actual price hits only.
     """
 
     @classmethod
@@ -21,11 +21,12 @@ class EngineEfficiencyTracker:
             except Exception:
                 pass
         return {
-            "total_signals_dispatched": 0,
             "total_wins": 0,
             "total_losses": 0,
             "realized_win_rate": 0.0,
             "total_engine_pnl_usd": 0.0,
+            "gross_wins_usd": 0.0,
+            "gross_losses_usd": 0.0,
             "profit_factor": 0.0,
             "history": []
         }
@@ -33,20 +34,18 @@ class EngineEfficiencyTracker:
     @classmethod
     def record_trade_outcome(cls, ticker: str, direction: str, entry: float, exit_price: float, outcome: str, pnl_usd: float) -> dict:
         data = cls.load_efficiency_data()
-        
-        data["total_signals_dispatched"] += 1
+
         if outcome == "WIN":
             data["total_wins"] += 1
+            data["gross_wins_usd"] = round(data.get("gross_wins_usd", 0.0) + pnl_usd, 2)
         else:
             data["total_losses"] += 1
+            data["gross_losses_usd"] = round(data.get("gross_losses_usd", 0.0) + abs(pnl_usd), 2)
 
-        total = data["total_signals_dispatched"]
+        total = data["total_wins"] + data["total_losses"]
         data["realized_win_rate"] = round((data["total_wins"] / total) * 100, 1) if total > 0 else 0.0
         data["total_engine_pnl_usd"] = round(data["total_engine_pnl_usd"] + pnl_usd, 2)
-        
-        total_wins_pnl = sum([h["pnl_usd"] for h in data["history"] if h["outcome"] == "WIN"] + ([pnl_usd] if outcome == "WIN" else []))
-        total_loss_pnl = abs(sum([h["pnl_usd"] for h in data["history"] if h["outcome"] == "LOSS"] + ([pnl_usd] if outcome == "LOSS" else [])))
-        data["profit_factor"] = round(total_wins_pnl / max(total_loss_pnl, 1.0), 2)
+        data["profit_factor"] = round(data["gross_wins_usd"] / max(data["gross_losses_usd"], 0.01), 2)
 
         data["history"].append({
             "ticker": ticker,

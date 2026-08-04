@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import threading
+import traceback
 import requests
 import json
 import pandas as pd
@@ -59,36 +60,48 @@ nlp = HuggingFaceEnsembleSentimentEngine.get_instance()
 news_engine = RealtimeNewsFetcher()
 telegram = TelegramAlertBot(BOT_TOKEN, CHAT_ID)
 
+# ============================================================
+# PRICE FORMATTING — Dynamic precision based on actual price
+# ============================================================
 def format_price_dynamic(price: float) -> str:
+    """Format price with appropriate decimal precision for display."""
     if price < 0.0001:
         return f"${price:.8f}"
     elif price < 0.01:
         return f"${price:.6f}"
     elif price < 1.0:
         return f"${price:.4f}"
-    elif price < 10.0:
+    elif price < 100.0:
         return f"${price:.3f}"
+    elif price < 10000.0:
+        return f"${price:.2f}"
     else:
         return f"${price:,.2f}"
 
 def format_price_raw(price: float) -> float:
+    """Round price to appropriate precision for calculations."""
     if price < 0.0001:
         return round(price, 8)
     elif price < 0.01:
         return round(price, 6)
     elif price < 1.0:
         return round(price, 4)
-    elif price < 10.0:
+    elif price < 100.0:
         return round(price, 3)
+    elif price < 10000.0:
+        return round(price, 2)
     else:
         return round(price, 2)
 
+# ============================================================
+# RENDER CLOUD HEALTH CHECK SERVER
+# ============================================================
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v26.0 User-Friendly Redesign Active 24/7")
+        self.wfile.write(b"Den Engine v35.0 Active 24/7 | Real Binance Futures Data")
 
     def log_message(self, format, *args):
         return
@@ -97,7 +110,7 @@ def start_health_server():
     try:
         port = int(os.getenv("PORT", 10000))
         server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-        print(f"[✓] Render Cloud Server listening on port {port} (Main HTTP Process Active 24/7)", flush=True)
+        print(f"[✓] Health Server listening on port {port}", flush=True)
         server.serve_forever()
     except Exception as e:
         print(f"[!] Health server exception: {e}", flush=True)
@@ -111,24 +124,64 @@ def self_ping_keep_alive():
         except Exception:
             pass
 
+# ============================================================
+# KELLY CRITERION — Proper mathematical position sizing
+# ============================================================
+def kelly_position_size(win_rate: float, reward_risk_ratio: float, account_balance: float, max_risk_pct: float = 0.05) -> dict:
+    """
+    Proper Kelly Criterion:
+    f* = (p * b - q) / b
+    where p = win probability, q = loss probability, b = reward/risk ratio
+    Then apply half-Kelly for safety.
+    """
+    p = win_rate
+    q = 1.0 - p
+    b = reward_risk_ratio
+
+    kelly_fraction = (p * b - q) / b if b > 0 else 0.0
+    kelly_fraction = max(kelly_fraction, 0.0)  # Never negative
+
+    # Half-Kelly for safety (standard institutional practice)
+    half_kelly = kelly_fraction * 0.5
+
+    # Cap at max_risk_pct of account
+    risk_fraction = min(half_kelly, max_risk_pct)
+    dollars_at_risk = round(account_balance * risk_fraction, 2)
+
+    # Floor at $10, cap at $75
+    dollars_at_risk = max(10.0, min(dollars_at_risk, 75.0))
+
+    return {
+        "kelly_full": round(kelly_fraction, 4),
+        "kelly_half": round(half_kelly, 4),
+        "dollars_at_risk": dollars_at_risk,
+        "risk_pct": round(risk_fraction * 100, 2)
+    }
+
+# ============================================================
+# MAIN SCAN ENGINE
+# ============================================================
 def run_continuous_quant_hunter():
     try:
         upgrade_meta = AutonomousSelfUpgraderDaemon.execute_self_upgrade_cycle()
         learned_weights = upgrade_meta["weights"] if isinstance(upgrade_meta, dict) else {}
         universe = DynamicMarketUniverse.get_full_hunting_universe()
 
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v26.0 REDESIGN | Scanning {len(universe)} Global Assets...", flush=True)
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v35.0 | Scanning {len(universe)} Assets (Real Binance Data Only)...", flush=True)
 
         active_positions = monitor.load_positions()
         active_tickers = [p.get("ticker") for p in active_positions if isinstance(p, dict)]
 
+        # ---- Global Macro Context (one-time per cycle) ----
         emergency_meta = EmergencyMacroWireEngine.scan_emergency_wire()
         wire_multiplier = emergency_meta["wire_multiplier"]
 
         headlines = news_engine.fetch_latest_headlines(limit=2)
-        headline_text = headlines[0]['headline'] if headlines else "Global macro markets trading within active momentum volatility."
+        headline_text = headlines[0]['headline'] if headlines else "Global macro markets trading within standard parameters."
         sentiment = nlp.analyze_news_ensemble(headline_text)
-        sm = sentiment["sentiment_multiplier"] * learned_weights.get("sentiment_weight", 1.0) if isinstance(learned_weights, dict) else sentiment["sentiment_multiplier"]
+        sm = sentiment["sentiment_multiplier"]
+        if isinstance(learned_weights, dict):
+            sm *= learned_weights.get("sentiment_weight", 1.0)
 
         calendar_meta = PredictiveMacroCalendarEngine.analyze_upcoming_macro_events()
         cal_multiplier = calendar_meta["event_multiplier"]
@@ -139,8 +192,15 @@ def run_continuous_quant_hunter():
         macro_events = USMacroEventEngine.get_macro_event_multiplier()
         macro_multiplier = macro_events["macro_multiplier"]
 
-        spy_df, _ = RealtimeMarketDataFeed.get_live_ohlcv("SPY/USDT", "Macro Benchmark", 540.0)
-        macro_meta = MacroRegimeFilter.evaluate_macro_trend(spy_df)
+        # Use BTC as the market regime benchmark (always available on Binance)
+        btc_df, btc_real = RealtimeMarketDataFeed.get_live_ohlcv("BTC/USDT", "Crypto Futures", 63900.0)
+        if btc_df is not None and btc_real:
+            macro_meta = MacroRegimeFilter.evaluate_macro_trend(btc_df)
+        else:
+            macro_meta = {"macro_score": 1.0, "macro_regime": "NEUTRAL"}
+
+        signals_dispatched = 0
+        assets_skipped_no_data = 0
 
         for item in universe:
             try:
@@ -148,18 +208,24 @@ def run_continuous_quant_hunter():
                 asset_class = item["asset_class"]
                 sector = item.get("sector", "Global")
                 base_p = item.get("base_price", 100.0)
-                
+
+                # ---- FETCH REAL EXCHANGE DATA ----
                 df, is_real = RealtimeMarketDataFeed.get_live_ohlcv(ticker, asset_class, base_p)
-                if df is None or len(df) < 15:
+
+                # CRITICAL: Skip if no real data — NEVER trade on fake/synthetic prices
+                if df is None or not is_real or len(df) < 15:
+                    if df is None or not is_real:
+                        assets_skipped_no_data += 1
                     continue
 
                 raw_current_price = float(df.iloc[-1]['close'])
                 current_price = format_price_raw(raw_current_price)
                 structure_flipped = df.iloc[-1]['close'] < df.iloc[-10]['low']
-                
-                if is_real:
-                    monitor.check_active_positions(ticker, current_price, sm, structure_flipped)
 
+                # Check existing positions against live price
+                monitor.check_active_positions(ticker, current_price, sm, structure_flipped)
+
+                # ---- FILTERS (quick rejects first) ----
                 slippage_meta = InstitutionalSlippageDefense.audit_spread_and_slippage(df)
                 if slippage_meta["is_high_slippage"]:
                     continue
@@ -178,6 +244,7 @@ def run_continuous_quant_hunter():
                 if velocity_meta["is_dead_chop"]:
                     continue
 
+                # ---- ANALYSIS ----
                 regime_meta = MarketRegimeClassifier.classify_regime(df)
                 funding_meta = FundingRateDefenseEngine.get_funding_rate(ticker)
                 poc_meta = InstitutionalVolumeProfile.calculate_poc(df)
@@ -186,7 +253,7 @@ def run_continuous_quant_hunter():
                 has_ema = 'ema_20' in df.columns
                 is_above_ema = df.iloc[-1]['close'] > df.iloc[-1]['ema_20'] if has_ema else df.iloc[-1]['close'] > df.iloc[-1]['open']
                 preliminary_direction = "LONG" if is_above_ema else "SHORT"
-                
+
                 reasoning_meta = DeepReasoningQuantEngine.audit_setup_authenticity(
                     df, sm, orderflow["buy_ratio"], preliminary_direction
                 )
@@ -195,33 +262,42 @@ def run_continuous_quant_hunter():
                     continue
 
                 smc_meta = InstitutionalSMCConfluenceEngine.audit_smc_confluence(df)
-                
-                base_wr_setting = (learned_weights.get("base_win_rate", 0.62) + smc_meta["win_rate_boost"]) if isinstance(learned_weights, dict) else (0.62 + smc_meta["win_rate_boost"])
-                effective_multiplier = sm * wire_multiplier * cal_multiplier * reg_multiplier * macro_multiplier * macro_meta["macro_score"] * funding_meta["squeeze_tailwind"] * shield_meta["shield_multiplier"] * reasoning_meta["authenticity_score"] * slippage_meta["slippage_score"]
-                
+
+                base_wr = learned_weights.get("base_win_rate", 0.62) if isinstance(learned_weights, dict) else 0.62
+                base_wr_setting = base_wr + smc_meta["win_rate_boost"]
+
+                effective_multiplier = (
+                    sm * wire_multiplier * cal_multiplier * reg_multiplier *
+                    macro_multiplier * macro_meta["macro_score"] *
+                    funding_meta["squeeze_tailwind"] * shield_meta["shield_multiplier"] *
+                    reasoning_meta["authenticity_score"] * slippage_meta["slippage_score"]
+                )
+
                 signal = SureShotConfluenceEngine.evaluate_setup(df, effective_multiplier, base_win_rate=base_wr_setting)
 
-                # HIGH-CONVICTION 75.0%+ WIN RATE GATE FOR PRISTINE A+ SETUPS
+                # ---- 75%+ WIN RATE GATE ----
                 if signal["is_sure_shot"] and signal["win_rate"] >= 0.75:
                     direction = signal["direction"]
                     entry = current_price
-                    
-                    risk_params = CapitalDefenseShield.get_dynamic_risk_params(ACCOUNT_BALANCE, signal["win_rate"])
-                    target_risk_usd = risk_params["dollars_at_risk"]
+
+                    # ---- KELLY CRITERION POSITION SIZING ----
+                    reward_risk_ratio = 3.0
+                    kelly = kelly_position_size(signal["win_rate"], reward_risk_ratio, ACCOUNT_BALANCE)
+                    target_risk_usd = kelly["dollars_at_risk"]
 
                     sl_multiplier = max(regime_meta["sl_multiplier"], shield_meta["sl_buffer_atr"])
                     sl_dist = max(signal["atr"] * sl_multiplier, entry * 0.008)
-                    tp_dist = sl_dist * 3.0
+                    tp_dist = sl_dist * reward_risk_ratio
 
                     raw_sl = entry - sl_dist if direction == "LONG" else entry + sl_dist
                     raw_tp = entry + tp_dist if direction == "LONG" else entry - tp_dist
-                    
+
                     sl = format_price_raw(raw_sl)
                     tp = format_price_raw(raw_tp)
-                    
+
                     sl_pct = abs(entry - sl) / entry
                     tp_pct = abs(tp - entry) / entry
-                    
+
                     if sl_pct < 0.001:
                         continue
 
@@ -235,40 +311,40 @@ def run_continuous_quant_hunter():
 
                     final_margin = round(target_risk_usd / max(chosen_leverage * sl_pct, 0.0001), 2)
                     actual_notional = round(final_margin * chosen_leverage, 2)
-                    
+
                     exact_loss_usd = round(actual_notional * sl_pct, 2)
                     exact_gain_usd = round(actual_notional * tp_pct, 2)
-                    roi_gain_pct = round((exact_gain_usd / final_margin) * 100, 1)
+                    roi_gain_pct = round((exact_gain_usd / max(final_margin, 0.01)) * 100, 1)
                     win_rate_pct = round(signal["win_rate"] * 100, 1)
 
                     dir_emoji = "🟢" if direction == "LONG" else "🔴"
                     action_str = "LONG (BUY)" if direction == "LONG" else "SHORT (SELL)"
 
-                    # ACCURATE WIN RATE TEMPLATE (Cleaned without text bloat)
                     alert_msg = f"""
 {dir_emoji} **{action_str}: {ticker}**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🏆 **WIN RATE:** `{win_rate_pct}%`
+🏆 **WIN RATE:** `{win_rate_pct}%` | Kelly Risk: `{kelly['risk_pct']}%`
 📍 **ENTRY:** `{format_price_dynamic(entry)}`
 🎯 **TAKE PROFIT (TP):** `{format_price_dynamic(tp)}` (+{tp_pct*100:.2f}%)
 🛡️ **STOP LOSS (SL):** `{format_price_dynamic(sl)}` (-{sl_pct*100:.2f}%)
 
-💰 **REQUIRED MARGIN:** `${final_margin:,.2f} USDT` (`{chosen_leverage}x Isolated`)
-📈 **TARGET GAIN:** `+${exact_gain_usd:,.2f} USDT` (+{roi_gain_pct}% ROI)
-📉 **HARD RISK:** `-${exact_loss_usd:,.2f} USDT` (-{exact_loss_usd/ACCOUNT_BALANCE*100:.1f}% Equity)
+💰 **MARGIN:** `${final_margin:,.2f} USDT` (`{chosen_leverage}x Isolated`)
+📈 **TARGET GAIN:** `+${exact_gain_usd:,.2f}` (+{roi_gain_pct}% ROI)
+📉 **HARD RISK:** `-${exact_loss_usd:,.2f}` (-{exact_loss_usd/ACCOUNT_BALANCE*100:.1f}% Equity)
 ⏱️ **EST. HORIZON:** `{duration_meta['formatted_label']}`
 🏛️ **EXCHANGE:** `{lev_meta['primary_exchange']}`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[✓] SMC Fair Value Gap & Multi-Timeframe Alignment Verified
-[✓] 1.8x ATR Wide Liquidity Sweep Defense Active
+✅ Real-Time Binance Futures Price Verified
+✅ SMC + Multi-Timeframe Alignment Confirmed
                     """
-                    
+
                     is_dispatched = telegram.send_alert(alert_msg)
                     if is_dispatched:
                         SignalCooldownEngine.record_signal_sent(ticker)
-                        print(f"[✓] v28.0 FRESH SIGNAL DELIVERED TO TELEGRAM FOR {ticker}", flush=True)
+                        signals_dispatched += 1
+                        print(f"[✓] SIGNAL #{signals_dispatched} DISPATCHED: {ticker} {direction} @ {format_price_dynamic(entry)}", flush=True)
 
-                        # 1. Replace old running position for ticker in active_positions.json with fresh setup
+                        # Save position with margin/leverage for real PnL tracking later
                         positions = monitor.load_positions()
                         updated_positions = [p for p in positions if p.get("ticker") != ticker]
                         updated_positions.append({
@@ -278,12 +354,15 @@ def run_continuous_quant_hunter():
                             "stop_loss": sl,
                             "take_profit": tp,
                             "win_rate": signal["win_rate"],
+                            "margin": final_margin,
+                            "leverage": chosen_leverage,
+                            "notional": actual_notional,
                             "epoch_time": time.time(),
                             "time": time.strftime('%Y-%m-%d %H:%M:%S')
                         })
                         monitor.save_positions(updated_positions)
-                        
-                        # 2. Append to Dispatched Signals History (Preserving Efficiency Tracking)
+
+                        # Append to dispatched signals log
                         os.makedirs("portfolio", exist_ok=True)
                         disp_file = "portfolio/dispatched_signals.json"
                         dispatched = []
@@ -300,7 +379,9 @@ def run_continuous_quant_hunter():
                             "stop_loss": sl,
                             "take_profit": tp,
                             "win_rate": signal["win_rate"],
-                            "status": "FRESH_DISPATCH",
+                            "margin": final_margin,
+                            "leverage": chosen_leverage,
+                            "status": "DISPATCHED",
                             "time": time.strftime('%Y-%m-%d %H:%M:%S')
                         })
                         try:
@@ -308,26 +389,43 @@ def run_continuous_quant_hunter():
                                 json.dump(dispatched, f, indent=2)
                         except Exception as e:
                             print(f"[!] Error writing dispatched_signals.json: {e}")
-            except Exception as item_err:
-                print(f"[!] Error scanning {item.get('ticker')}: {item_err}", flush=True)
-                continue
-    except Exception as loop_err:
-        print(f"[!] Error in quant hunter loop: {loop_err}", flush=True)
 
+            except Exception as item_err:
+                print(f"[!] Error scanning {item.get('ticker', '?')}: {item_err}", flush=True)
+                continue
+
+        print(f"[{time.strftime('%H:%M:%S')}] Scan complete: {signals_dispatched} signals dispatched, {assets_skipped_no_data} assets skipped (no real data)", flush=True)
+
+    except Exception as loop_err:
+        print(f"[!] CRITICAL scan loop error: {loop_err}", flush=True)
+        traceback.print_exc()
+
+# ============================================================
+# BACKGROUND SCANNER LOOP — Runs every 15 seconds on Render
+# ============================================================
 def start_background_scanner_loop():
-    print("🚀 Starting Den Engine v34.0 Dedicated Background Scanner Loop...", flush=True)
+    print("🚀 Den Engine v35.0 Background Scanner Starting...", flush=True)
+    # Send startup notification
+    try:
+        telegram.send_alert("🚀 **Den Engine v35.0 Online**\n━━━━━━━━━━━━━━━━━━━━━━━━\n✅ Real Binance Futures Data\n✅ Kelly Criterion Sizing\n✅ Auto-Dispatch Active 24/7")
+    except Exception:
+        pass
+
     while True:
         try:
             run_continuous_quant_hunter()
         except Exception as e:
-            print(f"[!] Exception in background scanner loop: {e}", flush=True)
-            telegram.send_alert(f"⚠️ Scanner Loop Exception Recovered: {e}")
+            print(f"[!] Scanner loop exception (recovering): {e}", flush=True)
+            traceback.print_exc()
         time.sleep(15)
 
+# ============================================================
+# ENTRY POINT — Render Cloud Main Process
+# ============================================================
 if __name__ == "__main__":
     t_scan = threading.Thread(target=start_background_scanner_loop, daemon=False)
     t_scan.start()
     t_ping = threading.Thread(target=self_ping_keep_alive, daemon=True)
     t_ping.start()
-    print("🚀 Den Engine v29.0 Serving Main Process HTTP Health Server on Render Cloud...", flush=True)
+    print("🚀 Den Engine v35.0 HTTP Health Server Active on Render Cloud...", flush=True)
     start_health_server()

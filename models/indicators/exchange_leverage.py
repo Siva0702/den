@@ -2,42 +2,45 @@
 
 class ExchangeLeverageEngine:
     """
-    Den Engine v17.2 Verified Exchange Pair & Leverage Matrix:
-    - BAC/USDT: WEEX EXCLUSIVE (Max 100x Leverage, $62.33 Weex Price)
-    - GS/USDT: BITUNIX EXCLUSIVE (Max 50x Leverage, $1,029.00 Bitunix Price)
-    - Crypto (BTC, ETH, SOL, XRP, DOGE): BITUNIX & WEEX (Max 100x - 125x Leverage)
-    - Bullion (XAU, XAG): BITUNIX & WEEX (Max 75x - 100x Leverage)
+    Den Engine v35.0 Verified Binance Futures Leverage Matrix:
+    All leverage limits calibrated to Binance Futures (same as Bitunix/Weex).
     """
 
-    BITUNIX_EXCLUSIVE_PAIRS = {
+    EQUITY_PAIRS = {
         "GS/USDT": 50, "NVDA/USDT": 50, "TSLA/USDT": 50, "AAPL/USDT": 50,
-        "AMZN/USDT": 50, "MSFT/USDT": 50, "GOOGL/USDT": 50, "META/USDT": 50, "PLTR/USDT": 50
+        "AMZN/USDT": 50, "MSFT/USDT": 50, "GOOGL/USDT": 50, "META/USDT": 50,
+        "PLTR/USDT": 50, "NFLX/USDT": 50, "INTC/USDT": 50, "AMD/USDT": 50,
+        "SMCI/USDT": 50, "COIN/USDT": 50, "MSTR/USDT": 50, "BABA/USDT": 50,
     }
 
-    WEEX_EXCLUSIVE_PAIRS = {
-        "BAC/USDT": 100, "BABA/USDT": 100, "PDD/USDT": 100
+    COMMODITY_PAIRS = {
+        "XAU/USDT": 75, "XAG/USDT": 75, "COPPER/USDT": 50,
     }
 
-    DUAL_EXCHANGE_PAIRS = {
-        "BTC/USDT": 125, "ETH/USDT": 125, "SOL/USDT": 100, "XRP/USDT": 100, "DOGE/USDT": 100,
-        "AVAX/USDT": 75, "LINK/USDT": 75, "NEAR/USDT": 75, "SUI/USDT": 75, "PEPE/USDT": 75,
-        "XAU/USDT": 100, "XAG/USDT": 75, "WTI/USDT": 50, "BRENT/USDT": 50, "NGAS/USDT": 50,
-        "COIN/USDT": 100, "MSTR/USDT": 100
+    CRYPTO_PAIRS = {
+        "BTC/USDT": 125, "ETH/USDT": 125, "SOL/USDT": 75, "XRP/USDT": 75,
+        "DOGE/USDT": 75, "BNB/USDT": 75, "AVAX/USDT": 50, "LINK/USDT": 50,
+        "NEAR/USDT": 50, "SUI/USDT": 50, "PEPE/USDT": 50, "WIF/USDT": 50,
+        "FET/USDT": 50, "RENDER/USDT": 50, "INJ/USDT": 50, "TIA/USDT": 50,
+        "ARB/USDT": 50, "OP/USDT": 50, "APT/USDT": 50, "SEI/USDT": 50,
+        "TAO/USDT": 50, "PENDLE/USDT": 50, "RUNE/USDT": 50, "ADA/USDT": 50,
+        "DOT/USDT": 50, "LTC/USDT": 50, "MATIC/USDT": 50, "STX/USDT": 50,
+        "ORDI/USDT": 50,
     }
 
     @classmethod
     def get_calibrated_leverage(cls, ticker: str, ideal_leverage: int) -> dict:
-        if ticker in cls.WEEX_EXCLUSIVE_PAIRS:
-            exchange_name = "Weex Exclusive"
-            max_allowed = cls.WEEX_EXCLUSIVE_PAIRS[ticker]
-        elif ticker in cls.BITUNIX_EXCLUSIVE_PAIRS:
-            exchange_name = "Bitunix Exclusive"
-            max_allowed = cls.BITUNIX_EXCLUSIVE_PAIRS[ticker]
-        elif ticker in cls.DUAL_EXCHANGE_PAIRS:
-            exchange_name = "Bitunix / Weex"
-            max_allowed = cls.DUAL_EXCHANGE_PAIRS[ticker]
+        if ticker in cls.EQUITY_PAIRS:
+            exchange_name = "Binance Futures (Equity)"
+            max_allowed = cls.EQUITY_PAIRS[ticker]
+        elif ticker in cls.COMMODITY_PAIRS:
+            exchange_name = "Binance Futures (Commodity)"
+            max_allowed = cls.COMMODITY_PAIRS[ticker]
+        elif ticker in cls.CRYPTO_PAIRS:
+            exchange_name = "Binance Futures (Crypto)"
+            max_allowed = cls.CRYPTO_PAIRS[ticker]
         else:
-            exchange_name = "Bitunix"
+            exchange_name = "Binance Futures"
             max_allowed = 50
 
         final_leverage = min(ideal_leverage, max_allowed)
