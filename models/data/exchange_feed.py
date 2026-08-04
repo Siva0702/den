@@ -6,7 +6,7 @@ import numpy as np
 class BitunixWeexLiveFeed:
     """
     Den Engine v36.0 Global Multi-Exchange Failover Adapter:
-    Fetches real 15m kline data from Binance Futures, with automatic failover to Bybit
+    Fetches real kline data from Binance Futures, with automatic failover to Bybit
     and Bitget REST APIs. Eliminates HTTP 451 (US IP geo-blocking) on Render Cloud!
     """
 
@@ -16,12 +16,13 @@ class BitunixWeexLiveFeed:
 
     TICKER_MAP = {
         "PEPE/USDT": {"symbol": "1000PEPEUSDT", "divisor": 1000.0},
+        "SHIB/USDT": {"symbol": "1000SHIBUSDT", "divisor": 1000.0},
         "MATIC/USDT": {"symbol": "POLUSDT", "divisor": 1.0},
     }
 
     @classmethod
-    def get_exchange_ohlcv(cls, ticker: str, base_price: float = 100.0) -> tuple:
-        """Fetch real 15m klines from Binance, Bybit, or Bitget. Returns (DataFrame, is_real)."""
+    def get_exchange_ohlcv(cls, ticker: str, base_price: float = 100.0, interval: str = "15m") -> tuple:
+        """Fetch real klines from Binance, Bybit, or Bitget. Returns (DataFrame, is_real)."""
         mapping = cls.TICKER_MAP.get(ticker)
         if mapping:
             symbol = mapping["symbol"]
@@ -30,9 +31,13 @@ class BitunixWeexLiveFeed:
             symbol = ticker.replace("/", "").upper()
             divisor = 1.0
 
+        binance_int = {"15m": "15m", "1h": "1h", "4h": "4h", "1d": "1d"}.get(interval, "15m")
+        bybit_int = {"15m": "15", "1h": "60", "4h": "240", "1d": "D"}.get(interval, "15")
+        bitget_int = {"15m": "15m", "1h": "1H", "4h": "4H", "1d": "1D"}.get(interval, "15m")
+
         # 1. Try Binance Futures API
         try:
-            url_binance = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval=15m&limit=100"
+            url_binance = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval={binance_int}&limit=100"
             resp = requests.get(url_binance, headers=cls.HEADERS, timeout=3)
             if resp.status_code == 200:
                 raw_klines = resp.json()
@@ -53,7 +58,7 @@ class BitunixWeexLiveFeed:
 
         # 2. Try Bybit Linear Futures API (No HTTP 451 US Geo-block)
         try:
-            url_bybit = f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol}&interval=15&limit=100"
+            url_bybit = f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol}&interval={bybit_int}&limit=100"
             resp = requests.get(url_bybit, headers=cls.HEADERS, timeout=3)
             if resp.status_code == 200:
                 data = resp.json()
@@ -76,14 +81,15 @@ class BitunixWeexLiveFeed:
 
         # 3. Try Bitget Futures Market API
         try:
-            url_bitget = f"https://api.bitget.com/api/v2/mix/market/candles?symbol={symbol}&granularity=15m&limit=100&productType=USDT-FUTURES"
+            url_bitget = f"https://api.bitget.com/api/v2/mix/market/candles?symbol={symbol}&granularity={bitget_int}&limit=100&productType=USDT-FUTURES"
             resp = requests.get(url_bitget, headers=cls.HEADERS, timeout=3)
             if resp.status_code == 200:
                 data = resp.json()
                 klines = data.get("data", [])
                 if klines and len(klines) > 0:
                     records = []
-                    for k in klines:
+                    # Bitget also returns newest first
+                    for k in reversed(klines):
                         records.append({
                             'timestamp': int(k[0]),
                             'open': float(k[1]) / divisor,

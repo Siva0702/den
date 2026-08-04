@@ -12,9 +12,11 @@ POSITIONS_FILE = "portfolio/active_positions.json"
 
 class ActivePositionMonitor:
     """
-    Den Engine v37.0 Real-Time Position Monitor & Engine Accuracy Tracker:
-    Monitors active positions and calculates REAL PnL from actual price movements.
-    Reports live engine efficiency on every TP/SL hit to Telegram.
+    Den Engine v38.0 Real-Time Position Monitor & Engine Accuracy Tracker:
+    - Monitors active positions against live exchange prices
+    - Calculates REAL PnL from actual price movements
+    - Records outcomes to BOTH audit/engine_efficiency.json AND portfolio/trade_history.json
+    - Uses 🟢 for LONG wins, 🔴 for SHORT wins, 🏆 for big wins, 💔 for losses
     """
 
     def __init__(self, bot_token: str, chat_id: str):
@@ -38,6 +40,21 @@ class ActivePositionMonitor:
                 json.dump(positions, f, indent=2)
         except Exception as e:
             print(f"[!] Error saving active positions: {e}")
+
+    def _format_price(self, price: float) -> str:
+        """Dynamic precision formatting."""
+        if price < 0.0001:
+            return f"${price:.8f}"
+        elif price < 0.01:
+            return f"${price:.6f}"
+        elif price < 1.0:
+            return f"${price:.4f}"
+        elif price < 100.0:
+            return f"${price:.3f}"
+        elif price < 10000.0:
+            return f"${price:.2f}"
+        else:
+            return f"${price:,.2f}"
 
     def send_telegram_alert(self, text: str):
         if not self.bot_token or not self.chat_id:
@@ -92,6 +109,9 @@ class ActivePositionMonitor:
             sl = pos.get("stop_loss", current_price)
             tp = pos.get("take_profit", current_price)
             direction = pos.get("direction", "LONG")
+            factor_scores = pos.get("factor_scores", {})
+            win_rate_at_entry = pos.get("win_rate", 0.0)
+            user_positioned = pos.get("user_positioned", False)
 
             tp_hit = (direction == "LONG" and current_price >= tp) or (direction == "SHORT" and current_price <= tp)
             sl_hit = (direction == "LONG" and current_price <= sl) or (direction == "SHORT" and current_price >= sl)
@@ -100,17 +120,28 @@ class ActivePositionMonitor:
                 alert_key = f"{ticker}_TP_HIT_{int(pos.get('epoch_time', 0))}"
                 if alert_key not in self.notified_milestones:
                     pnl_data = self._calculate_real_pnl(pos, current_price)
+                    
+                    # Record to BOTH tracking files (fixes self-learning disconnect)
                     eff = EngineEfficiencyTracker.record_trade_outcome(
-                        ticker, direction, entry, current_price, "WIN", pnl_data["pnl_usd"]
+                        ticker, direction, entry, current_price, "WIN", pnl_data["pnl_usd"],
+                        factor_scores=factor_scores,
+                        win_rate_at_entry=win_rate_at_entry,
+                        user_positioned=user_positioned
                     )
 
+                    # Dynamic emojis
+                    dir_dot = "🟢" if direction == "LONG" else "🔴"
+                    big_win = pnl_data["roi_pct"] >= 50.0
+                    win_emoji = "🏆" if big_win else "🎉"
+
                     msg = f"""
-🎉 **ENGINE WIN: {ticker} HIT TP!** 🎉
+{win_emoji} **ENGINE WIN: {ticker} HIT TP!** {dir_dot}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📍 **Entry:** `${entry:,.4f}`
-🎯 **TP Exit:** `${current_price:,.4f}`
+📍 **Entry:** `{self._format_price(entry)}`
+🎯 **TP Exit:** `{self._format_price(current_price)}`
 📈 **Real PnL:** `+${pnl_data['pnl_usd']:,.2f} USDT` (+{pnl_data['roi_pct']}% ROI)
-💰 **Margin Used:** `${pnl_data['margin']:,.2f}` ({pnl_data['leverage']}x)
+💰 **Margin:** `${pnl_data['margin']:,.2f}` ({pnl_data['leverage']}x)
+{"👤 **You positioned this trade!**" if user_positioned else ""}
 
 📊 **ENGINE ACCURACY**
 • Win Rate: `{eff['realized_win_rate']}%` ({eff['total_wins']}W / {eff['total_losses']}L)
@@ -126,22 +157,32 @@ class ActivePositionMonitor:
                 alert_key = f"{ticker}_SL_HIT_{int(pos.get('epoch_time', 0))}"
                 if alert_key not in self.notified_milestones:
                     pnl_data = self._calculate_real_pnl(pos, current_price)
+                    
+                    # Record to BOTH tracking files
                     eff = EngineEfficiencyTracker.record_trade_outcome(
-                        ticker, direction, entry, current_price, "LOSS", pnl_data["pnl_usd"]
+                        ticker, direction, entry, current_price, "LOSS", pnl_data["pnl_usd"],
+                        factor_scores=factor_scores,
+                        win_rate_at_entry=win_rate_at_entry,
+                        user_positioned=user_positioned
                     )
 
+                    dir_dot = "🟢" if direction == "LONG" else "🔴"
+
                     msg = f"""
-🛑 **ENGINE LOSS: {ticker} HIT SL** 🛑
+💔 **ENGINE LOSS: {ticker} HIT SL** {dir_dot}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📍 **Entry:** `${entry:,.4f}`
-🛡️ **SL Exit:** `${current_price:,.4f}`
+📍 **Entry:** `{self._format_price(entry)}`
+🛡️ **SL Exit:** `{self._format_price(current_price)}`
 📉 **Real Loss:** `-${abs(pnl_data['pnl_usd']):,.2f} USDT` ({pnl_data['roi_pct']}% ROI)
-💰 **Margin Used:** `${pnl_data['margin']:,.2f}` ({pnl_data['leverage']}x)
+💰 **Margin:** `${pnl_data['margin']:,.2f}` ({pnl_data['leverage']}x)
+{"👤 **You positioned this trade!**" if user_positioned else ""}
 
 📊 **ENGINE ACCURACY**
 • Win Rate: `{eff['realized_win_rate']}%` ({eff['total_wins']}W / {eff['total_losses']}L)
 • Net PnL: `${eff['total_engine_pnl_usd']:,.2f} USDT`
 • Profit Factor: `{eff['profit_factor']}`
+
+🧠 **Self-Learning:** Engine will penalize similar setups on {ticker}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                     """
                     self.send_telegram_alert(msg)

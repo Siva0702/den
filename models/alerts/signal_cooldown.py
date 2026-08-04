@@ -15,6 +15,22 @@ class SignalCooldownEngine:
 
     @classmethod
     def can_send_signal(cls, ticker: str, refresh_minutes: float = 15.0) -> bool:
+        current_time = time.time()
+
+        # 1. Check primary cooldown file
+        if os.path.exists(COOLDOWN_FILE):
+            try:
+                with open(COOLDOWN_FILE, "r") as f:
+                    cooldowns = json.load(f)
+                    ticker_epoch = cooldowns.get(ticker)
+                    if ticker_epoch is not None:
+                        elapsed_mins = (current_time - float(ticker_epoch)) / 60.0
+                        if 0 <= elapsed_mins < refresh_minutes:
+                            return False
+            except Exception:
+                pass
+
+        # 2. Check active positions file
         if os.path.exists(POSITIONS_FILE):
             try:
                 with open(POSITIONS_FILE, "r") as f:
@@ -23,12 +39,12 @@ class SignalCooldownEngine:
                         if pos.get("ticker") == ticker:
                             pos_epoch = pos.get("epoch_time")
                             if pos_epoch is not None:
-                                elapsed_mins = (time.time() - float(pos_epoch)) / 60.0
-                                # If signal was sent less than refresh_minutes ago, hold off to prevent spam
+                                elapsed_mins = (current_time - float(pos_epoch)) / 60.0
                                 if 0 <= elapsed_mins < refresh_minutes:
                                     return False
             except Exception:
                 pass
+
         return True
 
     @classmethod
