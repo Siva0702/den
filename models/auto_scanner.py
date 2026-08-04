@@ -297,8 +297,8 @@ def run_continuous_quant_hunter():
 
                 signal = SureShotConfluenceEngine.evaluate_setup(df, effective_multiplier, base_win_rate=base_wr_setting)
 
-                # ---- 75%+ WIN RATE GATE ----
-                if signal["is_sure_shot"] and signal["win_rate"] >= 0.75:
+                # ---- 70%+ HIGH-CONVICTION WIN RATE GATE ----
+                if signal["is_sure_shot"] and signal["win_rate"] >= 0.70:
                     direction = signal["direction"]
                     entry = current_price
 
