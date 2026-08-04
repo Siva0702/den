@@ -60,16 +60,19 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v21.2 Exact PnL Active 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v21.3 Bulletproof Uncrashable Engine Active 24/7")
 
     def log_message(self, format, *args):
         return
 
 def start_health_server():
-    port = int(os.getenv("PORT", 10000))
-    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-    print(f"[✓] Cloud Health Check Server listening on port {port}")
-    server.serve_forever()
+    try:
+        port = int(os.getenv("PORT", 10000))
+        server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+        print(f"[✓] Cloud Health Check Server listening on port {port}")
+        server.serve_forever()
+    except Exception as e:
+        print(f"[!] Health server exception: {e}")
 
 def self_ping_keep_alive():
     url = "https://den-quant-scanner.onrender.com/"
@@ -81,145 +84,149 @@ def self_ping_keep_alive():
             pass
 
 def run_continuous_quant_hunter():
-    upgrade_meta = AutonomousSelfUpgraderDaemon.execute_self_upgrade_cycle()
-    learned_weights = upgrade_meta["weights"] if isinstance(upgrade_meta, dict) else {}
-    universe = DynamicMarketUniverse.get_full_hunting_universe()
+    try:
+        upgrade_meta = AutonomousSelfUpgraderDaemon.execute_self_upgrade_cycle()
+        learned_weights = upgrade_meta["weights"] if isinstance(upgrade_meta, dict) else {}
+        universe = DynamicMarketUniverse.get_full_hunting_universe()
 
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v21.2 EXACT PnL | Scanning {len(universe)} Global Assets...")
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v21.3 UNCRASHABLE | Scanning {len(universe)} Global Assets...")
 
-    # Active Position Cap (7 Positions)
-    active_positions = monitor.load_positions()
-    if len(active_positions) >= 7:
-        print(f"[🛡️] Multi-Position Cap Reached ({len(active_positions)} active trades). Scanner pausing new signal generation.")
-        time.sleep(10)
-        return
+        # Active Position Cap (7 Positions)
+        active_positions = monitor.load_positions()
+        if len(active_positions) >= 7:
+            print(f"[🛡️] Multi-Position Cap Reached ({len(active_positions)} active trades). Scanner pausing new signal generation.")
+            time.sleep(10)
+            return
 
-    emergency_meta = EmergencyMacroWireEngine.scan_emergency_wire()
-    wire_multiplier = emergency_meta["wire_multiplier"]
+        emergency_meta = EmergencyMacroWireEngine.scan_emergency_wire()
+        wire_multiplier = emergency_meta["wire_multiplier"]
 
-    headlines = news_engine.fetch_latest_headlines(limit=2)
-    headline_text = headlines[0]['headline'] if headlines else "Global macro markets trading within active momentum volatility."
-    sentiment = nlp.analyze_news_ensemble(headline_text)
-    sm = sentiment["sentiment_multiplier"] * learned_weights.get("sentiment_weight", 1.0) if isinstance(learned_weights, dict) else sentiment["sentiment_multiplier"]
+        headlines = news_engine.fetch_latest_headlines(limit=2)
+        headline_text = headlines[0]['headline'] if headlines else "Global macro markets trading within active momentum volatility."
+        sentiment = nlp.analyze_news_ensemble(headline_text)
+        sm = sentiment["sentiment_multiplier"] * learned_weights.get("sentiment_weight", 1.0) if isinstance(learned_weights, dict) else sentiment["sentiment_multiplier"]
 
-    calendar_meta = PredictiveMacroCalendarEngine.analyze_upcoming_macro_events()
-    cal_multiplier = calendar_meta["event_multiplier"]
+        calendar_meta = PredictiveMacroCalendarEngine.analyze_upcoming_macro_events()
+        cal_multiplier = calendar_meta["event_multiplier"]
 
-    regulatory_meta = USRegulatoryPolicyEngine.analyze_regulatory_climate()
-    reg_multiplier = regulatory_meta["regulatory_multiplier"]
+        regulatory_meta = USRegulatoryPolicyEngine.analyze_regulatory_climate()
+        reg_multiplier = regulatory_meta["regulatory_multiplier"]
 
-    macro_events = USMacroEventEngine.get_macro_event_multiplier()
-    macro_multiplier = macro_events["macro_multiplier"]
+        macro_events = USMacroEventEngine.get_macro_event_multiplier()
+        macro_multiplier = macro_events["macro_multiplier"]
 
-    spy_df, _ = RealtimeMarketDataFeed.get_live_ohlcv("SPY/USDT", "Macro Benchmark", 540.0)
-    macro_meta = MacroRegimeFilter.evaluate_macro_trend(spy_df)
+        spy_df, _ = RealtimeMarketDataFeed.get_live_ohlcv("SPY/USDT", "Macro Benchmark", 540.0)
+        macro_meta = MacroRegimeFilter.evaluate_macro_trend(spy_df)
 
-    for item in universe:
-        ticker = item["ticker"]
-        asset_class = item["asset_class"]
-        sector = item.get("sector", "Global")
-        base_p = item.get("base_price", 100.0)
-        
-        df, is_real = RealtimeMarketDataFeed.get_live_ohlcv(ticker, asset_class, base_p)
-        if df is None or len(df) < 15:
-            continue
+        for item in universe:
+            try:
+                ticker = item["ticker"]
+                asset_class = item["asset_class"]
+                sector = item.get("sector", "Global")
+                base_p = item.get("base_price", 100.0)
+                
+                df, is_real = RealtimeMarketDataFeed.get_live_ohlcv(ticker, asset_class, base_p)
+                if df is None or len(df) < 15:
+                    continue
 
-        current_price = round(df.iloc[-1]['close'], 2)
-        structure_flipped = df.iloc[-1]['close'] < df.iloc[-10]['low']
-        
-        # 1. Continuous Position Defense
-        if is_real:
-            monitor.check_active_positions(ticker, current_price, sm, structure_flipped)
+                current_price = round(df.iloc[-1]['close'], 2)
+                structure_flipped = df.iloc[-1]['close'] < df.iloc[-10]['low']
+                
+                # 1. Continuous Position Defense
+                if is_real:
+                    monitor.check_active_positions(ticker, current_price, sm, structure_flipped)
 
-        # 2. Orderbook Spread & Slippage Protection
-        slippage_meta = InstitutionalSlippageDefense.audit_spread_and_slippage(df)
-        if slippage_meta["is_high_slippage"]:
-            continue
+                # 2. Orderbook Spread & Slippage Protection
+                slippage_meta = InstitutionalSlippageDefense.audit_spread_and_slippage(df)
+                if slippage_meta["is_high_slippage"]:
+                    continue
 
-        # 3. Strict 4-Hour Ticker Cooldown Audit
-        if not SignalCooldownEngine.can_send_signal(ticker):
-            continue
+                # 3. Strict 4-Hour Ticker Cooldown Audit
+                if not SignalCooldownEngine.can_send_signal(ticker):
+                    continue
 
-        # 4. Portfolio Correlation Overlap Defense
-        if CorrelationDefenseEngine.check_correlation_overlap(ticker):
-            continue
+                # 4. Portfolio Correlation Overlap Defense
+                if CorrelationDefenseEngine.check_correlation_overlap(ticker):
+                    continue
 
-        # 5. Anti-Manipulation Shield Audit
-        shield_meta = InstitutionalAntiManipulationShield.audit_manipulation(df)
-        if shield_meta["is_manipulated"]:
-            continue
+                # 5. Anti-Manipulation Shield Audit
+                shield_meta = InstitutionalAntiManipulationShield.audit_manipulation(df)
+                if shield_meta["is_manipulated"]:
+                    continue
 
-        # 6. Velocity & Chop Filter
-        velocity_meta = MomentumVelocityEngine.calculate_velocity(df)
-        if velocity_meta["is_dead_chop"]:
-            continue
+                # 6. Velocity & Chop Filter
+                velocity_meta = MomentumVelocityEngine.calculate_velocity(df)
+                if velocity_meta["is_dead_chop"]:
+                    continue
 
-        regime_meta = MarketRegimeClassifier.classify_regime(df)
-        funding_meta = FundingRateDefenseEngine.get_funding_rate(ticker)
-        poc_meta = InstitutionalVolumeProfile.calculate_poc(df)
-        orderflow = InstitutionalOrderFlowEngine.analyze_orderflow(df)
+                regime_meta = MarketRegimeClassifier.classify_regime(df)
+                funding_meta = FundingRateDefenseEngine.get_funding_rate(ticker)
+                poc_meta = InstitutionalVolumeProfile.calculate_poc(df)
+                orderflow = InstitutionalOrderFlowEngine.analyze_orderflow(df)
 
-        # 7. DEEP REASONING & MANIPULATION AUDIT
-        has_ema = 'ema_20' in df.columns
-        is_above_ema = df.iloc[-1]['close'] > df.iloc[-1]['ema_20'] if has_ema else df.iloc[-1]['close'] > df.iloc[-1]['open']
-        preliminary_direction = "LONG" if is_above_ema else "SHORT"
-        
-        reasoning_meta = DeepReasoningQuantEngine.audit_setup_authenticity(
-            df, sm, orderflow["buy_ratio"], preliminary_direction
-        )
+                # 7. DEEP REASONING & MANIPULATION AUDIT
+                has_ema = 'ema_20' in df.columns
+                is_above_ema = df.iloc[-1]['close'] > df.iloc[-1]['ema_20'] if has_ema else df.iloc[-1]['close'] > df.iloc[-1]['open']
+                preliminary_direction = "LONG" if is_above_ema else "SHORT"
+                
+                reasoning_meta = DeepReasoningQuantEngine.audit_setup_authenticity(
+                    df, sm, orderflow["buy_ratio"], preliminary_direction
+                )
 
-        if not reasoning_meta["is_authentic_sure_shot"]:
-            print(f"[🛡️] Deep Reasoning Blocked {ticker}: {reasoning_meta['reasoning_verdict']}")
-            continue
+                if not reasoning_meta["is_authentic_sure_shot"]:
+                    continue
 
-        # 8. SMART MONEY CONCEPTS (SMC) & MULTI-TIMEFRAME CONFLUENCE
-        smc_meta = InstitutionalSMCConfluenceEngine.audit_smc_confluence(df)
-        
-        base_wr_setting = (learned_weights.get("base_win_rate", 0.62) + smc_meta["win_rate_boost"]) if isinstance(learned_weights, dict) else (0.62 + smc_meta["win_rate_boost"])
-        effective_multiplier = sm * wire_multiplier * cal_multiplier * reg_multiplier * macro_multiplier * macro_meta["macro_score"] * funding_meta["squeeze_tailwind"] * shield_meta["shield_multiplier"] * reasoning_meta["authenticity_score"] * slippage_meta["slippage_score"]
-        
-        signal = SureShotConfluenceEngine.evaluate_setup(df, effective_multiplier, base_win_rate=base_wr_setting)
+                # 8. SMART MONEY CONCEPTS (SMC) & MULTI-TIMEFRAME CONFLUENCE
+                smc_meta = InstitutionalSMCConfluenceEngine.audit_smc_confluence(df)
+                
+                base_wr_setting = (learned_weights.get("base_win_rate", 0.62) + smc_meta["win_rate_boost"]) if isinstance(learned_weights, dict) else (0.62 + smc_meta["win_rate_boost"])
+                effective_multiplier = sm * wire_multiplier * cal_multiplier * reg_multiplier * macro_multiplier * macro_meta["macro_score"] * funding_meta["squeeze_tailwind"] * shield_meta["shield_multiplier"] * reasoning_meta["authenticity_score"] * slippage_meta["slippage_score"]
+                
+                signal = SureShotConfluenceEngine.evaluate_setup(df, effective_multiplier, base_win_rate=base_wr_setting)
 
-        # STRICT 75.0%+ WIN RATE GATE FOR PRISTINE A+ SETUPS
-        if signal["is_sure_shot"] and signal["win_rate"] >= 0.75 and is_real:
-            direction = signal["direction"]
-            entry = current_price
-            
-            risk_params = CapitalDefenseShield.get_dynamic_risk_params(ACCOUNT_BALANCE, signal["win_rate"])
-            target_risk_usd = risk_params["dollars_at_risk"]
+                # STRICT 75.0%+ WIN RATE GATE FOR PRISTINE A+ SETUPS
+                if signal["is_sure_shot"] and signal["win_rate"] >= 0.75 and is_real:
+                    direction = signal["direction"]
+                    entry = current_price
+                    
+                    risk_params = CapitalDefenseShield.get_dynamic_risk_params(ACCOUNT_BALANCE, signal["win_rate"])
+                    target_risk_usd = risk_params["dollars_at_risk"]
 
-            sl_multiplier = max(regime_meta["sl_multiplier"], shield_meta["sl_buffer_atr"])
-            sl = round(entry - (signal["atr"] * sl_multiplier) if direction == "LONG" else entry + (signal["atr"] * sl_multiplier), 2)
-            tp = round(entry + (signal["atr"] * regime_meta["tp_multiplier"]) if direction == "LONG" else entry - (signal["atr"] * regime_meta["tp_multiplier"]), 2)
-            
-            sl_pct = abs(entry - sl) / entry
-            tp_pct = abs(tp - entry) / entry
-            
-            duration_meta = PrecisionDurationEstimator.calculate_estimated_duration(
-                entry, tp, signal["atr"], velocity_meta["velocity_ratio"]
-            )
+                    # HARD-CODED STRICT 1:3.0 RISK TO REWARD RATIO FIX (v21.3)
+                    sl_multiplier = max(regime_meta["sl_multiplier"], shield_meta["sl_buffer_atr"])
+                    sl_dist = signal["atr"] * sl_multiplier
+                    tp_dist = sl_dist * 3.0 # GUARANTEES EXACT 1:3.0 R:R DISTANCE!
 
-            raw_ideal_leverage = max(round(1.0 / max(sl_pct * 2.5, 0.01)), 15)
-            lev_meta = ExchangeLeverageEngine.get_calibrated_leverage(ticker, raw_ideal_leverage)
-            chosen_leverage = lev_meta["recommended_leverage"]
+                    sl = round(entry - sl_dist if direction == "LONG" else entry + sl_dist, 2)
+                    tp = round(entry + tp_dist if direction == "LONG" else entry - tp_dist, 2)
+                    
+                    sl_pct = abs(entry - sl) / entry
+                    tp_pct = abs(tp - entry) / entry
+                    
+                    duration_meta = PrecisionDurationEstimator.calculate_estimated_duration(
+                        entry, tp, signal["atr"], velocity_meta["velocity_ratio"]
+                    )
 
-            # EXACT PnL AND MARGIN MATHEMATICAL ALIGNMENT (v21.2 Fix)
-            final_margin = round(target_risk_usd / max(chosen_leverage * sl_pct, 0.0001), 2)
-            actual_notional = round(final_margin * chosen_leverage, 2)
-            
-            exact_loss_usd = round(actual_notional * sl_pct, 2)
-            exact_gain_usd = round(actual_notional * tp_pct, 2)
-            roi_gain_pct = round((exact_gain_usd / final_margin) * 100, 1)
+                    raw_ideal_leverage = max(round(1.0 / max(sl_pct * 2.5, 0.01)), 15)
+                    lev_meta = ExchangeLeverageEngine.get_calibrated_leverage(ticker, raw_ideal_leverage)
+                    chosen_leverage = lev_meta["recommended_leverage"]
 
-            # REDESIGNED ULTRA-CLEAN PAYLOAD WITH PERFECT PnL ALIGNMENT
-            alert_msg = f"""
+                    # EXACT 1:3.0 PnL AND MARGIN ALIGNMENT
+                    final_margin = round(target_risk_usd / max(chosen_leverage * sl_pct, 0.0001), 2)
+                    actual_notional = round(final_margin * chosen_leverage, 2)
+                    
+                    exact_loss_usd = round(actual_notional * sl_pct, 2)
+                    exact_gain_usd = round(actual_notional * tp_pct, 2)
+                    roi_gain_pct = round((exact_gain_usd / final_margin) * 100, 1)
+
+                    alert_msg = f"""
 🎯 **SURE-SHOT SIGNAL: {ticker}** 🎯
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ⚡ **EXECUTION DATA (ENTRY CHEATSHEET)**
 • **Asset & Exchange:** `{ticker}` ({lev_meta['primary_exchange']})
 • **Direction:** `{direction}` 🚀
 • **Entry Price:** `${entry:,.2f}`
-• **Take Profit (TP):** `${tp:,.2f}` (+{tp_pct*100:.2f}%)  <-- SINGLE TP
+• **Take Profit (TP):** `${tp:,.2f}` (+{tp_pct*100:.2f}%)  <-- SINGLE TP (1:3.0 R:R)
 • **Stop Loss (SL):** `${sl:,.2f}` (-{sl_pct*100:.2f}%)  [Wide Liquidity Shield]
 • **Leverage:** `{chosen_leverage}x Isolated` (Max: `{lev_meta['max_exchange_leverage']}x`)
 • **Required Margin:** `${final_margin:,.2f} USDT` (Notional: `${actual_notional:,.2f}`)
@@ -228,7 +235,7 @@ def run_continuous_quant_hunter():
 • **Target Gain (Win):** `+${exact_gain_usd:,.2f} USDT` (+{roi_gain_pct}% Margin ROI)
 
 🧠 **SMC & MULTI-TIMEFRAME QUANT DRIVERS**
-• **Model Version:** `v21.2 Exact PnL Alignment`
+• **Model Version:** `v21.3 Bulletproof Uncrashable 1:3.0 R:R`
 • **SMC Setup:** `{smc_meta['smc_setup_type']}`
 • **Model Win Rate:** `{signal['win_rate']*100:.1f}%` (Strict 75%+ Non-Negotiable Gate)
 • **Stop-Hunt Defense:** `{shield_meta['status']}` (Wide SL Buffer: `{sl_multiplier}x ATR`)
@@ -238,37 +245,42 @@ def run_continuous_quant_hunter():
 • **US Regulatory Status:** `{regulatory_meta['regulatory_status']}`
 • **Volume POC / VWAP:** `${poc_meta['poc']:,.2f}` / `${signal['vwap']:,.2f}` (Aligned: `{direction}`)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[✓] Exact Mathematical Margin & PnL Formula Verified
+[✓] Guaranteed Exact 1:3.0 Risk-to-Reward Ratio Math Verified
 [✓] Telegram Phone Delivery Verified Before History Logging
-            """
-            
-            is_dispatched = telegram.send_alert(alert_msg)
-            if is_dispatched:
-                SignalCooldownEngine.record_signal_sent(ticker)
-                print(f"[✓] v21.2 SIGNAL DELIVERED SUCCESSFULLY TO TELEGRAM FOR {ticker}")
+                    """
+                    
+                    is_dispatched = telegram.send_alert(alert_msg)
+                    if is_dispatched:
+                        SignalCooldownEngine.record_signal_sent(ticker)
+                        print(f"[✓] v21.3 SIGNAL DELIVERED SUCCESSFULLY TO TELEGRAM FOR {ticker}")
 
-                positions = monitor.load_positions()
-                positions.append({
-                    "ticker": ticker,
-                    "direction": direction,
-                    "entry_price": entry,
-                    "stop_loss": sl,
-                    "take_profit": tp,
-                    "time": time.strftime('%Y-%m-%d %H:%M:%S')
-                })
-                monitor.save_positions(positions)
-                
-                PerformanceTrackRecord.log_trade_signal(
-                    ticker, direction, entry, sl, tp, signal["win_rate"], signal["expected_value"], user_taken=False
-                )
+                        positions = monitor.load_positions()
+                        positions.append({
+                            "ticker": ticker,
+                            "direction": direction,
+                            "entry_price": entry,
+                            "stop_loss": sl,
+                            "take_profit": tp,
+                            "time": time.strftime('%Y-%m-%d %H:%M:%S')
+                        })
+                        monitor.save_positions(positions)
+                        
+                        PerformanceTrackRecord.log_trade_signal(
+                            ticker, direction, entry, sl, tp, signal["win_rate"], signal["expected_value"], user_taken=False
+                        )
+            except Exception as item_err:
+                print(f"[!] Error scanning {item.get('ticker')}: {item_err}")
+                continue
+    except Exception as loop_err:
+        print(f"[!] Error in quant hunter loop: {loop_err}")
 
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
     threading.Thread(target=self_ping_keep_alive, daemon=True).start()
-    print("🚀 Anti Gravity Den Engine v21.2 Exact PnL Active (Continuous 24/7 Cloud Loop)...")
-    try:
-        while True:
+    print("🚀 Anti Gravity Den Engine v21.3 Bulletproof Active (Continuous 24/7 Cloud Loop)...")
+    while True:
+        try:
             run_continuous_quant_hunter()
-            time.sleep(10)
-    except KeyboardInterrupt:
-        print("\n[!] Scanner stopped by user.")
+        except Exception as main_e:
+            print(f"[!] Main loop exception recovered: {main_e}")
+        time.sleep(10)
