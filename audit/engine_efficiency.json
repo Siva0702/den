@@ -1,11 +1,11 @@
 {
   "total_wins": 1,
-  "total_losses": 0,
-  "realized_win_rate": 100.0,
-  "total_engine_pnl_usd": 150.13,
+  "total_losses": 1,
+  "realized_win_rate": 50.0,
+  "total_engine_pnl_usd": 105.91,
   "gross_wins_usd": 150.13,
-  "gross_losses_usd": 0.0,
-  "profit_factor": 15013.0,
+  "gross_losses_usd": 44.22,
+  "profit_factor": 3.4,
   "history": [
     {
       "ticker": "SMCI/USDT",
@@ -15,6 +15,15 @@
       "outcome": "WIN",
       "pnl_usd": 150.13,
       "timestamp": "2026-08-04 23:41:49"
+    },
+    {
+      "ticker": "DOT/USDT",
+      "direction": "LONG",
+      "entry_price": 0.8418,
+      "exit_price": 0.8358,
+      "outcome": "LOSS",
+      "pnl_usd": -44.22,
+      "timestamp": "2026-08-04 23:43:01"
     }
   ]
 }
