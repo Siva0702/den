@@ -24,6 +24,7 @@ from alerts.signal_cooldown import SignalCooldownEngine
 from audit.engine_efficiency import EngineEfficiencyTracker
 from position_monitor import ActivePositionMonitor
 from news.market_universe import DynamicMarketUniverse
+from news.regulatory_events import USRegulatoryPolicyEngine
 from data.exchange_feed import BitunixWeexLiveFeed
 from alerts.telegram_bot import TelegramAlertBot
 
@@ -225,6 +226,13 @@ def run_continuous_quant_hunter():
         # Session awareness
         session_name, session_score = get_current_session()
 
+        # Real-time US Regulatory & Political Climate Tracking (Clarity Act / Recess / SEC)
+        reg_data = USRegulatoryPolicyEngine.analyze_regulatory_climate()
+        reg_multiplier = reg_data.get("regulatory_multiplier", 1.0)
+        reg_warning = reg_data.get("warning_msg", "")
+        if reg_data.get("is_recess_delay"):
+            print(f"[!] {reg_data['regulatory_status']} | Multiplier: {reg_multiplier}", flush=True)
+
         signals_dispatched = 0
         assets_skipped = 0
         candidates = []
@@ -268,7 +276,7 @@ def run_continuous_quant_hunter():
                     btc_df=btc_df_15m,
                     ticker=ticker,
                     efficiency_history=efficiency_data,
-                    sentiment_multiplier=1.0
+                    sentiment_multiplier=reg_multiplier
                 )
 
                 total_score = signal.get("total_score", 0)
@@ -387,6 +395,8 @@ def run_continuous_quant_hunter():
                 for ff in factors_failed[:3]:
                     missing_text += f"• {ff}\n"
 
+                macro_alert_block = f"\n🏛️ **POLITICAL / MACRO HEADWIND:**\n_{reg_warning}_\n" if reg_warning else ""
+
                 alert_msg = f"""{dir_dot} **{rec_label} — {action_str}: {ticker}**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🏆 **SCORE:** `{total_score:.0f}/100` | Win Rate: `{win_rate_pct}%`
@@ -400,7 +410,7 @@ def run_continuous_quant_hunter():
 📉 **RISK:** `-${exact_loss_usd:,.2f}`
 ⏱️ **EST. DURATION:** `{est_duration}`
 🏛️ **EXCHANGE:** `Bitunix / Weex Futures`
-
+{macro_alert_block}
 📋 **KEY REASONS:**
 {reasons_text}
 {"⚠️ **MISSING:**" + chr(10) + missing_text if missing_text else ""}
