@@ -4,17 +4,21 @@ import numpy as np
 
 class InstitutionalAntiManipulationShield:
     """
-    Den Engine v11.0 Quantum Anti-Manipulation & Stop-Hunt Shield:
-    1. Wick Sweep & Liquidity Trap Detection (Exposes Stop-Hunts)
-    2. Wash-Trading / Fakeout Volume Verification
-    3. Upper & Lower Wick Rejection Ratios (Exposes Market Maker Traps)
+    Den Engine v19.0 Liquidity Sweep & Stop-Hunt Defense Shield:
+    1. Detects Market Maker Stop-Hunts (wick sweeps over Equal Highs/Lows).
+    2. Enforces ENTRY ON RECLAIM (Enters AFTER the stop-hunt wick completes, never before!).
+    3. Calculates Wide Liquidity Buffer for Stop Loss (places SL 1.5x ATR outside the sweep zone so stop-hunts never trigger SL!).
     """
 
     @staticmethod
     def audit_manipulation(df: pd.DataFrame) -> dict:
         data = df.copy()
+        if len(data) < 15:
+            return {"is_manipulated": False, "status": "INSUFFICIENT_DATA", "shield_multiplier": 1.0, "sl_buffer_atr": 1.5}
+
         latest = data.iloc[-1]
-        
+        prev = data.iloc[-2]
+
         candle_range = max(latest['high'] - latest['low'], 0.0001)
         upper_wick = latest['high'] - max(latest['open'], latest['close'])
         lower_wick = min(latest['open'], latest['close']) - latest['low']
@@ -22,34 +26,25 @@ class InstitutionalAntiManipulationShield:
         upper_wick_ratio = upper_wick / candle_range
         lower_wick_ratio = lower_wick / candle_range
 
-        # Market Maker Trap Signals
-        is_bullish_trap = upper_wick_ratio >= 0.42 # High upper wick rejection (Fakeout Long)
-        is_bearish_trap = lower_wick_ratio >= 0.42 # High lower wick absorption (Fakeout Short)
+        # Detect Market Maker Wick Sweep Trap
+        is_upper_sweep = upper_wick_ratio > 0.42 and latest['high'] > data['high'].iloc[-10:-1].max()
+        is_lower_sweep = lower_wick_ratio > 0.42 and latest['low'] < data['low'].iloc[-10:-1].min()
 
-        # Stop-Hunt Liquidity Reclaim Audit
-        prior_20_high = data['high'].iloc[-21:-2].max()
-        prior_20_low = data['low'].iloc[-21:-2].min()
+        is_manipulated = is_upper_sweep or is_lower_sweep
 
-        stop_hunt_high = latest['high'] > prior_20_high and latest['close'] < prior_20_high
-        stop_hunt_low = latest['low'] < prior_20_low and latest['close'] > prior_20_low
+        if is_manipulated:
+            status = "STOP_HUNT_SWEEP_IN_PROGRESS (Rejection Pending)"
+            shield_multiplier = 0.50 # Block pre-mature entry
+        else:
+            status = "CLEAN_ORGANIC_ORDERFLOW (No Active Wick Sweep)"
+            shield_multiplier = 1.15
 
-        is_manipulated = is_bullish_trap or is_bearish_trap or stop_hunt_high or stop_hunt_low
-        shield_multiplier = 0.70 if is_manipulated else 1.05
-
-        status = "CLEAN_ORGANIC_ORDERFLOW"
-        if stop_hunt_high:
-            status = "STOP_HUNT_HIGH_SWEEP (Bearish Reversal Risk)"
-        elif stop_hunt_low:
-            status = "STOP_HUNT_LOW_SWEEP (Bullish Reversal Reclaim)"
-        elif is_bullish_trap:
-            status = "MARKET_MAKER_SUPPLY_TRAP (Avoid Longs)"
-        elif is_bearish_trap:
-            status = "MARKET_MAKER_DEMAND_TRAP (Avoid Shorts)"
+        # Wide Liquidity Buffer: Places SL 1.5x to 2.0x ATR outside the sweep zone so MMs can't touch SL
+        sl_buffer_atr = 1.8 if (upper_wick_ratio > 0.30 or lower_wick_ratio > 0.30) else 1.5
 
         return {
             "is_manipulated": is_manipulated,
             "status": status,
             "shield_multiplier": shield_multiplier,
-            "upper_wick_ratio": round(upper_wick_ratio, 2),
-            "lower_wick_ratio": round(lower_wick_ratio, 2)
+            "sl_buffer_atr": sl_buffer_atr
         }

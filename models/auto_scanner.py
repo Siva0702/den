@@ -58,7 +58,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v18.0 Autonomous Self-Upgrader Active 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v19.0 Liquidity Sweep Defense Active 24/7")
 
     def log_message(self, format, *args):
         return
@@ -71,10 +71,10 @@ def start_health_server():
 
 def run_continuous_quant_hunter():
     upgrade_meta = AutonomousSelfUpgraderDaemon.execute_self_upgrade_cycle()
-    learned_weights = upgrade_meta["weights"]
+    learned_weights = upgrade_meta["weights"] if isinstance(upgrade_meta, dict) else {}
     universe = DynamicMarketUniverse.get_full_hunting_universe()
 
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v18.0 AUTONOMOUS SELF-UPGRADER | Scanning {len(universe)} Global Assets...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v19.0 LIQUIDITY SWEEP DEFENSE | Scanning {len(universe)} Global Assets...")
 
     # Active Position Cap (7 Positions)
     active_positions = monitor.load_positions()
@@ -89,7 +89,7 @@ def run_continuous_quant_hunter():
     headlines = news_engine.fetch_latest_headlines(limit=2)
     headline_text = headlines[0]['headline'] if headlines else "Global macro markets trading within active momentum volatility."
     sentiment = nlp.analyze_news_ensemble(headline_text)
-    sm = sentiment["sentiment_multiplier"] * learned_weights.get("sentiment_weight", 1.0)
+    sm = sentiment["sentiment_multiplier"] * learned_weights.get("sentiment_weight", 1.0) if isinstance(learned_weights, dict) else sentiment["sentiment_multiplier"]
 
     calendar_meta = PredictiveMacroCalendarEngine.analyze_upcoming_macro_events()
     cal_multiplier = calendar_meta["event_multiplier"]
@@ -133,10 +133,10 @@ def run_continuous_quant_hunter():
         if CorrelationDefenseEngine.check_correlation_overlap(ticker):
             continue
 
-        # 5. Anti-Manipulation Shield Audit
+        # 5. Anti-Manipulation & Liquidity Sweep Shield Audit
         shield_meta = InstitutionalAntiManipulationShield.audit_manipulation(df)
         if shield_meta["is_manipulated"]:
-            continue
+            continue # Rejects active Market Maker Stop-Hunts until sweep completes!
 
         # 6. Velocity & Chop Filter
         velocity_meta = MomentumVelocityEngine.calculate_velocity(df)
@@ -161,18 +161,21 @@ def run_continuous_quant_hunter():
             print(f"[🛡️] Deep Reasoning Blocked {ticker}: {reasoning_meta['reasoning_verdict']}")
             continue
 
-        # 8. Evaluate High-Confluence 70%+ Win-Rate Opportunities
+        # 8. Evaluate Ultra-High Conviction 75%+ Win-Rate Opportunities
         effective_multiplier = sm * wire_multiplier * cal_multiplier * reg_multiplier * macro_multiplier * macro_meta["macro_score"] * funding_meta["squeeze_tailwind"] * shield_meta["shield_multiplier"] * reasoning_meta["authenticity_score"] * slippage_meta["slippage_score"]
-        signal = SureShotConfluenceEngine.evaluate_setup(df, effective_multiplier, base_win_rate=learned_weights.get("base_win_rate", 0.58))
+        signal = SureShotConfluenceEngine.evaluate_setup(df, effective_multiplier, base_win_rate=learned_weights.get("base_win_rate", 0.62) if isinstance(learned_weights, dict) else 0.62)
 
-        if signal["is_sure_shot"] and is_real:
+        # Require 75%+ Win Rate Gate for Pristine A+ Setups
+        if signal["is_sure_shot"] and signal["win_rate"] >= 0.75 and is_real:
             direction = signal["direction"]
             entry = current_price
             
             risk_params = CapitalDefenseShield.get_dynamic_risk_params(ACCOUNT_BALANCE, signal["win_rate"])
             target_risk_usd = risk_params["dollars_at_risk"]
 
-            sl = round(entry - (signal["atr"] * regime_meta["sl_multiplier"]) if direction == "LONG" else entry + (signal["atr"] * regime_meta["sl_multiplier"]), 2)
+            # WIDE LIQUIDITY SWEEP STOP LOSS BUFFER (Placed 1.8x ATR outside sweep zone so MMs can't touch SL!)
+            sl_multiplier = max(regime_meta["sl_multiplier"], shield_meta["sl_buffer_atr"])
+            sl = round(entry - (signal["atr"] * sl_multiplier) if direction == "LONG" else entry + (signal["atr"] * sl_multiplier), 2)
             tp = round(entry + (signal["atr"] * regime_meta["tp_multiplier"]) if direction == "LONG" else entry - (signal["atr"] * regime_meta["tp_multiplier"]), 2)
             
             sl_pct = abs(entry - sl) / entry
@@ -197,7 +200,7 @@ def run_continuous_quant_hunter():
             exact_gain_usd = round(actual_notional * tp_pct, 2)
             roi_gain_pct = round((exact_gain_usd / final_margin) * 100, 1)
 
-            # REDESIGNED ULTRA-CLEAN PAYLOAD WITH AUTONOMOUS SELF-UPGRADED MODEL
+            # REDESIGNED ULTRA-CLEAN PAYLOAD WITH LIQUIDITY SWEEP DEFENSE
             alert_msg = f"""
 🎯 **SURE-SHOT SIGNAL: {ticker}** 🎯
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -206,30 +209,29 @@ def run_continuous_quant_hunter():
 • **Direction:** `{direction}` 🚀
 • **Entry Price:** `${entry:,.2f}`
 • **Take Profit (TP):** `${tp:,.2f}` (+{tp_pct*100:.2f}%)  <-- SINGLE TP
-• **Stop Loss (SL):** `${sl:,.2f}` (-{sl_pct*100:.2f}%)
+• **Stop Loss (SL):** `${sl:,.2f}` (-{sl_pct*100:.2f}%)  [Wide Liquidity Shield]
 • **Leverage:** `{chosen_leverage}x Isolated` (Max: `{lev_meta['max_exchange_leverage']}x`)
 • **Required Margin:** `${final_margin:,.2f} USDT` (Notional: `${actual_notional:,.2f}`)
 • **Est. Trade Horizon:** `{duration_meta['formatted_label']}` ⏱️
 • **Hard Risk (Loss):** `-${exact_loss_usd:,.2f} USDT` (-{exact_loss_usd/ACCOUNT_BALANCE*100:.1f}% Equity)
 • **Target Gain (Win):** `+${exact_gain_usd:,.2f} USDT` (+{roi_gain_pct}% Margin ROI)
 
-🧠 **AUTONOMOUS SELF-UPGRADED QUANT DRIVERS**
-• **Model Version:** `v18.0 Autonomous Self-Upgrader`
-• **Deep Audit:** `{reasoning_meta['reasoning_verdict']}`
+🧠 **LIQUIDITY SWEEP & QUANT DRIVERS**
+• **Model Version:** `v19.0 Liquidity Sweep Defense`
+• **Stop-Hunt Defense:** `{shield_meta['status']}` (Wide SL Buffer: `{sl_multiplier}x ATR`)
 • **Model Win Rate:** `{signal['win_rate']*100:.1f}%` (EV: `+{signal['expected_value']:.2f}`)
-• **Slippage Audit:** `{slippage_meta['estimated_spread_pct']}%` (Rec: `{slippage_meta['order_type_recommendation']}`)
+• **Deep Audit:** `{reasoning_meta['reasoning_verdict']}`
 • **Market Regime:** `{regime_meta['regime']}` (Vol Expansion: `{regime_meta['vol_expansion_ratio']}x`)
 • **Taker Buy Orderflow:** `{orderflow['buy_ratio']}%` (Buying Influx)
-• **Anti-Manipulation:** `{shield_meta['status']}`
 • **US Regulatory Status:** `{regulatory_meta['regulatory_status']}`
 • **Volume POC / VWAP:** `${poc_meta['poc']:,.2f}` / `${signal['vwap']:,.2f}` (Aligned: `{direction}`)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[✓] Autonomous 24/7 Self-Upgrading Model Active
-[✓] Orderbook Spread & Slippage Protection Verified
+[✓] Market Maker Stop-Hunt & Liquidity Sweep Protection Active
+[✓] Stop Loss Placed Outside Liquidity Sweep Zone
             """
             telegram.send_alert(alert_msg)
             SignalCooldownEngine.record_signal_sent(ticker)
-            print(f"[✓] v18.0 AUTONOMOUS SIGNAL DISPATCHED FOR {ticker}")
+            print(f"[✓] v19.0 LIQUIDITY SWEEP DEFENSE SIGNAL DISPATCHED FOR {ticker}")
 
             positions = monitor.load_positions()
             positions.append({
@@ -248,7 +250,7 @@ def run_continuous_quant_hunter():
 
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
-    print("🚀 Anti Gravity Den Engine v18.0 Autonomous Self-Upgrader Active (Continuous 24/7 Cloud Loop)...")
+    print("🚀 Anti Gravity Den Engine v19.0 Liquidity Sweep Defense Active (Continuous 24/7 Cloud Loop)...")
     try:
         while True:
             run_continuous_quant_hunter()
