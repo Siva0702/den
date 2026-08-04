@@ -50,6 +50,8 @@ telegram = TelegramAlertBot(BOT_TOKEN, CHAT_ID)
 # Track dispatched message IDs for "positioned" reply detection
 dispatched_message_ids = {}  # {message_id: ticker}
 last_update_id = 0
+last_signal_time = time.time()
+last_digest_time = 0
 
 def notify_upgrade_release_once():
     """Sends Telegram notification ONLY when a NEW version upgrade is deployed."""
@@ -520,11 +522,44 @@ _Reply **positioned** to track this trade_"""
                         "status": "DISPATCHED",
                         "time": time.strftime('%Y-%m-%d %H:%M:%S')
                     })
-                    try:
-                        with open(disp_file, "w") as f:
-                            json.dump(dispatched, f, indent=2)
-                    except Exception:
-                        pass
+                    global last_signal_time
+                    last_signal_time = time.time()
+
+        # ---- 3-HOUR NO-SIGNAL HEARTBEAT DIGEST ----
+        global last_digest_time
+        now_ts = time.time()
+        if (now_ts - last_signal_time >= 3 * 3600) and (now_ts - last_digest_time >= 3 * 3600) and candidates:
+            try:
+                candidates.sort(key=lambda x: (x["total_score"], x["win_rate"]), reverse=True)
+                top_20 = candidates[:20]
+                
+                digest_lines = []
+                for idx, item in enumerate(top_20, 1):
+                    emoji = "🟢" if item["direction"] == "LONG" else "🔴" if item["direction"] == "SHORT" else "⬜"
+                    wr_pct = round(item["win_rate"] * 100, 1)
+                    p_str = format_price_dynamic(item["entry"])
+                    digest_lines.append(
+                        f"`{idx:2d}.` {emoji} **{item['ticker']}** — Score: `{item['total_score']:.0f}/100` | WR: `{wr_pct}%` | Price: `{p_str}`"
+                    )
+                
+                digest_text = "\n".join(digest_lines)
+                reg_status_short = reg_data.get("regulatory_status", "NEUTRAL")
+
+                digest_msg = f"""🛰️ **DEN ENGINE HUNTING DIGEST (No Signals in 3h)**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 **STATUS:** Filtering for High Conviction (50+ Score Required)
+🏛️ **MACRO:** _{reg_status_short}_
+
+🏆 **TOP 20 LIVE HUNTED CANDIDATES:**
+{digest_text}
+
+💡 _All 87 assets monitored 24/7 across 4 timeframes (1D/4H/1H/15m)._
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
+                telegram.send_alert(digest_msg)
+                last_digest_time = now_ts
+                print(f"[✓] 3-Hour Heartbeat Digest dispatched to Telegram.", flush=True)
+            except Exception as digest_err:
+                print(f"[!] Heartbeat Digest Error: {digest_err}", flush=True)
 
         scanner_state["last_scan_time"] = time.strftime('%Y-%m-%d %H:%M:%S')
         scanner_state["total_scans"] += 1
