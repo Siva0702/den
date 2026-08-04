@@ -484,10 +484,17 @@ _Reply **positioned** to track this trade_"""
                     global last_signal_time
                     last_signal_time = time.time()
 
-        # ---- 3-HOUR NO-SIGNAL HEARTBEAT DIGEST ----
+        # ---- SESSION-AWARE NO-SIGNAL HEARTBEAT DIGEST ----
+        # During London & US Sessions: Every 1 HOUR (3600s) if no trades dispatched
+        # During Asian & Off-Hours: Every 3 HOURS (10800s) if no trades dispatched
         global last_digest_time
         now_ts = time.time()
-        if (now_ts - last_signal_time >= 3 * 3600) and (now_ts - last_digest_time >= 3 * 3600) and candidates:
+        
+        is_active_session = session_name in ["LONDON_OPEN", "LONDON", "NY_OVERLAP", "NY"]
+        required_interval = 3600 if is_active_session else 3 * 3600
+        interval_label = "1h" if is_active_session else "3h"
+
+        if (now_ts - last_signal_time >= required_interval) and (now_ts - last_digest_time >= required_interval) and candidates:
             try:
                 candidates.sort(key=lambda x: (x["total_score"], x["win_rate"]), reverse=True)
                 top_20 = candidates[:20]
@@ -504,9 +511,9 @@ _Reply **positioned** to track this trade_"""
                 digest_text = "\n".join(digest_lines)
                 reg_status_short = reg_data.get("regulatory_status", "NEUTRAL")
 
-                digest_msg = f"""🛰️ **DEN ENGINE HUNTING DIGEST (No Signals in 3h)**
+                digest_msg = f"""🛰️ **DEN ENGINE HUNTING DIGEST (No Trades in {interval_label})**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 **STATUS:** Filtering for High Conviction (50+ Score Required)
+📊 **SESSION:** `{session_name}` | High Conviction Filter Active (78+ Score Required)
 🏛️ **MACRO:** _{reg_status_short}_
 
 🏆 **TOP 20 LIVE HUNTED CANDIDATES:**
@@ -516,7 +523,7 @@ _Reply **positioned** to track this trade_"""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
                 telegram.send_alert(digest_msg)
                 last_digest_time = now_ts
-                print(f"[✓] 3-Hour Heartbeat Digest dispatched to Telegram.", flush=True)
+                print(f"[✓] {interval_label} Heartbeat Digest ({session_name}) dispatched to Telegram.", flush=True)
             except Exception as digest_err:
                 print(f"[!] Heartbeat Digest Error: {digest_err}", flush=True)
 
