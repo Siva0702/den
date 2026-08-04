@@ -1,28 +1,6 @@
 [
   {
-    "ticker": "GS/USDT",
-    "direction": "LONG",
-    "entry_price": 1029.0,
-    "take_profit": 1060.0,
-    "stop_loss": 1018.0,
-    "outcome": "WIN",
-    "pnl_usd": 150.0,
-    "win_rate": 0.85,
-    "time": "2026-08-03 18:30:00"
-  },
-  {
-    "ticker": "BAC/USDT",
-    "direction": "LONG",
-    "entry_price": 62.33,
-    "take_profit": 64.2,
-    "stop_loss": 61.7,
-    "outcome": "WIN",
-    "pnl_usd": 150.0,
-    "win_rate": 0.82,
-    "time": "2026-08-03 19:15:00"
-  },
-  {
-    "ticker": "ETH/USDT",
+    "ticker": "ETH/USDT (Yesterday)",
     "direction": "LONG",
     "entry_price": 1880.0,
     "take_profit": 1930.0,
@@ -33,81 +11,15 @@
     "time": "2026-08-03 20:10:00"
   },
   {
-    "ticker": "BTC/USDT",
+    "ticker": "ETH/USDT",
     "direction": "LONG",
-    "entry_price": 63200.0,
-    "take_profit": 64500.0,
-    "stop_loss": 62600.0,
-    "outcome": "WIN",
-    "pnl_usd": 150.0,
-    "win_rate": 0.8,
-    "time": "2026-08-03 21:00:00"
-  },
-  {
-    "ticker": "AVAX/USDT",
-    "direction": "LONG",
-    "entry_price": 22.4,
-    "take_profit": 23.5,
-    "stop_loss": 22.0,
-    "outcome": "WIN",
-    "pnl_usd": 150.0,
-    "win_rate": 0.76,
-    "time": "2026-08-03 22:30:00"
-  },
-  {
-    "ticker": "SUI/USDT",
-    "direction": "LONG",
-    "entry_price": 1.85,
-    "take_profit": 1.96,
-    "stop_loss": 1.81,
-    "outcome": "WIN",
-    "pnl_usd": 150.0,
-    "win_rate": 0.77,
-    "time": "2026-08-04 01:15:00"
-  },
-  {
-    "ticker": "INTC/USDT",
-    "direction": "LONG",
-    "entry_price": 95.03,
-    "take_profit": 97.11,
-    "stop_loss": 93.99,
+    "entry_price": 1855.19,
+    "take_profit": 1895.0,
+    "stop_loss": 1835.0,
     "outcome": "RUNNING",
     "pnl_usd": 0.0,
     "win_rate": 0.85,
-    "time": "2026-08-04 15:33:00"
-  },
-  {
-    "ticker": "NVDA/USDT",
-    "direction": "LONG",
-    "entry_price": 208.65,
-    "take_profit": 214.5,
-    "stop_loss": 205.2,
-    "outcome": "RUNNING",
-    "pnl_usd": 0.0,
-    "win_rate": 0.82,
-    "time": "2026-08-04 15:33:00"
-  },
-  {
-    "ticker": "SMCI/USDT",
-    "direction": "LONG",
-    "entry_price": 29.42,
-    "take_profit": 31.8,
-    "stop_loss": 28.1,
-    "outcome": "RUNNING",
-    "pnl_usd": 0.0,
-    "win_rate": 0.78,
-    "time": "2026-08-04 15:33:00"
-  },
-  {
-    "ticker": "FET/USDT",
-    "direction": "LONG",
-    "entry_price": 0.1451,
-    "take_profit": 0.155,
-    "stop_loss": 0.141,
-    "outcome": "RUNNING",
-    "pnl_usd": 0.0,
-    "win_rate": 0.78,
-    "time": "2026-08-04 15:53:00"
+    "time": "2026-08-04 16:54:00"
   },
   {
     "ticker": "ADA/USDT",
@@ -117,8 +29,30 @@
     "stop_loss": 0.415,
     "outcome": "RUNNING",
     "pnl_usd": 0.0,
-    "win_rate": 0.76,
-    "time": "2026-08-04 15:53:00"
+    "win_rate": 0.765,
+    "time": "2026-08-04 16:54:00"
+  },
+  {
+    "ticker": "NVDA/USDT",
+    "direction": "LONG",
+    "entry_price": 208.65,
+    "take_profit": 214.5,
+    "stop_loss": 205.2,
+    "outcome": "RUNNING",
+    "pnl_usd": 0.0,
+    "win_rate": 0.825,
+    "time": "2026-08-04 16:54:00"
+  },
+  {
+    "ticker": "TSLA/USDT",
+    "direction": "LONG",
+    "entry_price": 310.2,
+    "take_profit": 322.0,
+    "stop_loss": 305.0,
+    "outcome": "RUNNING",
+    "pnl_usd": 0.0,
+    "win_rate": 0.785,
+    "time": "2026-08-04 16:54:00"
   },
   {
     "ticker": "XAU/USDT",
@@ -129,7 +63,7 @@
     "outcome": "RUNNING",
     "pnl_usd": 0.0,
     "win_rate": 0.85,
-    "time": "2026-08-04 16:18:00"
+    "time": "2026-08-04 16:54:00"
   },
   {
     "ticker": "XAG/USDT",
@@ -140,7 +74,7 @@
     "outcome": "RUNNING",
     "pnl_usd": 0.0,
     "win_rate": 0.82,
-    "time": "2026-08-04 16:18:00"
+    "time": "2026-08-04 16:54:00"
   },
   {
     "ticker": "COPPER/USDT",
@@ -151,6 +85,6 @@
     "outcome": "RUNNING",
     "pnl_usd": 0.0,
     "win_rate": 0.8,
-    "time": "2026-08-04 16:18:00"
+    "time": "2026-08-04 16:54:00"
   }
 ]
