@@ -8,9 +8,9 @@ POSITIONS_FILE = "portfolio/active_positions.json"
 
 class SignalCooldownEngine:
     """
-    Den Engine v28.0 Outcome-Based & Dynamic Fresh Signal Replacement Engine:
-    Allows sending fresh updated signals on existing tickers if a higher-conviction setup forms
-    or after a short refresh buffer (15 minutes), while preserving old signal history for efficiency auditing!
+    Den Engine v31.0 Timezone-Proof Outcome & Dynamic Signal Replacement Engine:
+    Uses 100% UTC Epoch Timestamps (time.time()) to eliminate timezone discrepancies
+    between local developer systems (IST) and Render Cloud servers (UTC)!
     """
 
     @classmethod
@@ -21,16 +21,12 @@ class SignalCooldownEngine:
                     positions = json.load(f)
                     for pos in positions:
                         if pos.get("ticker") == ticker:
-                            pos_time_str = pos.get("time")
-                            if pos_time_str:
-                                try:
-                                    pos_time = time.mktime(time.strptime(pos_time_str, '%Y-%m-%d %H:%M:%S'))
-                                    elapsed_mins = (time.time() - pos_time) / 60.0
-                                    # If signal is less than refresh_minutes old, hold off to prevent spam
-                                    if elapsed_mins < refresh_minutes:
-                                        return False
-                                except Exception:
-                                    pass
+                            pos_epoch = pos.get("epoch_time")
+                            if pos_epoch is not None:
+                                elapsed_mins = (time.time() - float(pos_epoch)) / 60.0
+                                # If signal was sent less than refresh_minutes ago, hold off to prevent spam
+                                if 0 <= elapsed_mins < refresh_minutes:
+                                    return False
             except Exception:
                 pass
         return True

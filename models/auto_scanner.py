@@ -278,6 +278,7 @@ def run_continuous_quant_hunter():
                             "stop_loss": sl,
                             "take_profit": tp,
                             "win_rate": signal["win_rate"],
+                            "epoch_time": time.time(),
                             "time": time.strftime('%Y-%m-%d %H:%M:%S')
                         })
                         monitor.save_positions(updated_positions)
