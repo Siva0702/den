@@ -23,10 +23,13 @@ from indicators.correlation_defense import CorrelationDefenseEngine
 from indicators.regime_classifier import MarketRegimeClassifier
 from indicators.exchange_leverage import ExchangeLeverageEngine
 from indicators.deep_reasoning import DeepReasoningQuantEngine
+from indicators.slippage_defense import InstitutionalSlippageDefense
+from indicators.trailing_sl import DynamicBreakevenTrailingEngine
 from portfolio.capital_defense import CapitalDefenseShield
 from alerts.signal_cooldown import SignalCooldownEngine
 from ml.self_learning import SelfLearningQuantEngine
 from ml.internet_learning import InternetQuantLearningEngine
+from ml.auto_upgrader import AutonomousSelfUpgraderDaemon
 from news.macro_events import USMacroEventEngine
 from news.regulatory_events import USRegulatoryPolicyEngine
 from news.predictive_calendar import PredictiveMacroCalendarEngine
@@ -55,7 +58,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v17.3 Deep Reasoning Active 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v18.0 Autonomous Self-Upgrader Active 24/7")
 
     def log_message(self, format, *args):
         return
@@ -67,10 +70,12 @@ def start_health_server():
     server.serve_forever()
 
 def run_continuous_quant_hunter():
+    # 0. Trigger Autonomous Self-Upgrade Cycle
+    upgrade_meta = AutonomousSelfUpgraderDaemon.execute_self_upgrade_cycle()
+    learned_weights = upgrade_meta["weights"]
     universe = DynamicMarketUniverse.get_full_hunting_universe()
-    learned_weights = SelfLearningQuantEngine.get_learned_weights()
 
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v17.3 DEEP REASONING | Scanning {len(universe)} Global Assets for Authentic Sure-Shots...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v18.0 AUTONOMOUS SELF-UPGRADER | Scanning {len(universe)} Global Assets...")
 
     # Active Position Cap (7 Positions)
     active_positions = monitor.load_positions()
@@ -116,20 +121,25 @@ def run_continuous_quant_hunter():
         if is_real:
             monitor.check_active_positions(ticker, current_price, sm, structure_flipped)
 
-        # 2. Strict 4-Hour Ticker Cooldown Audit
+        # 2. Orderbook Spread & Slippage Protection
+        slippage_meta = InstitutionalSlippageDefense.audit_spread_and_slippage(df)
+        if slippage_meta["is_high_slippage"]:
+            continue # Rejects illiquid spreads to protect execution!
+
+        # 3. Strict 4-Hour Ticker Cooldown Audit
         if not SignalCooldownEngine.can_send_signal(ticker):
             continue
 
-        # 3. Portfolio Correlation Overlap Defense
+        # 4. Portfolio Correlation Overlap Defense
         if CorrelationDefenseEngine.check_correlation_overlap(ticker):
             continue
 
-        # 4. Anti-Manipulation Shield Audit
+        # 5. Anti-Manipulation Shield Audit
         shield_meta = InstitutionalAntiManipulationShield.audit_manipulation(df)
         if shield_meta["is_manipulated"]:
             continue
 
-        # 5. Velocity & Chop Filter
+        # 6. Velocity & Chop Filter
         velocity_meta = MomentumVelocityEngine.calculate_velocity(df)
         if velocity_meta["is_dead_chop"]:
             continue
@@ -139,7 +149,7 @@ def run_continuous_quant_hunter():
         poc_meta = InstitutionalVolumeProfile.calculate_poc(df)
         orderflow = InstitutionalOrderFlowEngine.analyze_orderflow(df)
 
-        # 6. DEEP REASONING & MANIPULATION AUDIT
+        # 7. DEEP REASONING & MANIPULATION AUDIT
         preliminary_direction = "LONG" if df.iloc[-1]['close'] > df.iloc[-1]['ema_20'] if 'ema_20' in df.columns else True else "SHORT"
         reasoning_meta = DeepReasoningQuantEngine.audit_setup_authenticity(
             df, sm, orderflow["buy_ratio"], preliminary_direction
@@ -149,8 +159,8 @@ def run_continuous_quant_hunter():
             print(f"[🛡️] Deep Reasoning Blocked {ticker}: {reasoning_meta['reasoning_verdict']}")
             continue
 
-        # 7. Evaluate High-Confluence 70%+ Win-Rate Opportunities
-        effective_multiplier = sm * wire_multiplier * cal_multiplier * reg_multiplier * macro_multiplier * macro_meta["macro_score"] * funding_meta["squeeze_tailwind"] * shield_meta["shield_multiplier"] * reasoning_meta["authenticity_score"]
+        # 8. Evaluate High-Confluence 70%+ Win-Rate Opportunities
+        effective_multiplier = sm * wire_multiplier * cal_multiplier * reg_multiplier * macro_multiplier * macro_meta["macro_score"] * funding_meta["squeeze_tailwind"] * shield_meta["shield_multiplier"] * reasoning_meta["authenticity_score"] * slippage_meta["slippage_score"]
         signal = SureShotConfluenceEngine.evaluate_setup(df, effective_multiplier, base_win_rate=learned_weights.get("base_win_rate", 0.58))
 
         if signal["is_sure_shot"] and is_real:
@@ -185,7 +195,7 @@ def run_continuous_quant_hunter():
             exact_gain_usd = round(actual_notional * tp_pct, 2)
             roi_gain_pct = round((exact_gain_usd / final_margin) * 100, 1)
 
-            # REDESIGNED ULTRA-CLEAN PAYLOAD WITH DEEP REASONING VERIFICATION
+            # REDESIGNED ULTRA-CLEAN PAYLOAD WITH AUTONOMOUS SELF-UPGRADED MODEL
             alert_msg = f"""
 🎯 **SURE-SHOT SIGNAL: {ticker}** 🎯
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -201,21 +211,23 @@ def run_continuous_quant_hunter():
 • **Hard Risk (Loss):** `-${exact_loss_usd:,.2f} USDT` (-{exact_loss_usd/ACCOUNT_BALANCE*100:.1f}% Equity)
 • **Target Gain (Win):** `+${exact_gain_usd:,.2f} USDT` (+{roi_gain_pct}% Margin ROI)
 
-🧠 **QUANT ANALYSIS & DEEP REASONING**
+🧠 **AUTONOMOUS SELF-UPGRADED QUANT DRIVERS**
+• **Model Version:** `v18.0 Autonomous Self-Upgrader`
 • **Deep Audit:** `{reasoning_meta['reasoning_verdict']}`
 • **Model Win Rate:** `{signal['win_rate']*100:.1f}%` (EV: `+{signal['expected_value']:.2f}`)
+• **Slippage Audit:** `{slippage_meta['estimated_spread_pct']}%` (Rec: `{slippage_meta['order_type_recommendation']}`)
 • **Market Regime:** `{regime_meta['regime']}` (Vol Expansion: `{regime_meta['vol_expansion_ratio']}x`)
 • **Taker Buy Orderflow:** `{orderflow['buy_ratio']}%` (Buying Influx)
 • **Anti-Manipulation:** `{shield_meta['status']}`
 • **US Regulatory Status:** `{regulatory_meta['regulatory_status']}`
 • **Volume POC / VWAP:** `${poc_meta['poc']:,.2f}` / `${signal['vwap']:,.2f}` (Aligned: `{direction}`)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[✓] Deep Analytical Reasoning & Manipulation Defense Applied
-[✓] 100% Bitunix & Weex Direct REST Feed Synchronized
+[✓] Autonomous 24/7 Self-Upgrading Model Active
+[✓] Orderbook Spread & Slippage Protection Verified
             """
             telegram.send_alert(alert_msg)
             SignalCooldownEngine.record_signal_sent(ticker)
-            print(f"[✓] v17.3 DEEP REASONING SIGNAL DISPATCHED FOR {ticker}")
+            print(f"[✓] v18.0 AUTONOMOUS SIGNAL DISPATCHED FOR {ticker}")
 
             positions = monitor.load_positions()
             positions.append({
@@ -234,7 +246,7 @@ def run_continuous_quant_hunter():
 
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
-    print("🚀 Anti Gravity Den Engine v17.3 Deep Reasoning Active (Continuous 24/7 Cloud Loop)...")
+    print("🚀 Anti Gravity Den Engine v18.0 Autonomous Self-Upgrader Active (Continuous 24/7 Cloud Loop)...")
     try:
         while True:
             run_continuous_quant_hunter()
