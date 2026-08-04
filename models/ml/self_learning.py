@@ -29,8 +29,11 @@ class SelfLearningQuantEngine:
         }
 
         if not os.path.exists(WEIGHTS_FILE):
-            with open(WEIGHTS_FILE, "w") as f:
-                json.dump(default_weights, f, indent=2)
+            try:
+                with open(WEIGHTS_FILE, "w") as f:
+                    json.dump(default_weights, f, indent=2)
+            except Exception:
+                pass
             return default_weights
 
         try:
@@ -40,13 +43,16 @@ class SelfLearningQuantEngine:
             return default_weights
 
     @classmethod
-    def train_and_update(cls):
+    def train_and_update(cls) -> dict:
         """
-        Executes after every trade close.
+        Executes during continuous scan loops.
         Analyzes winning vs losing trade characteristics and auto-tunes parameters.
+        ALWAYS returns a valid dict of learned weights!
         """
+        weights = cls.get_learned_weights()
+
         if not os.path.exists(HISTORY_FILE):
-            return
+            return weights
 
         try:
             with open(HISTORY_FILE, "r") as f:
@@ -54,17 +60,13 @@ class SelfLearningQuantEngine:
             
             closed_trades = [t for t in history.get("trades", []) if t.get("status") in ["CLOSED_WIN", "CLOSED_LOSS"]]
             if len(closed_trades) < 3:
-                return # Need at least 3 trades to begin reinforcement learning
+                return weights # Need at least 3 trades to begin reinforcement learning
 
             wins = [t for t in closed_trades if t["status"] == "CLOSED_WIN"]
             losses = [t for t in closed_trades if t["status"] == "CLOSED_LOSS"]
             
             win_rate = len(wins) / len(closed_trades)
-            weights = cls.get_learned_weights()
 
-            # Reinforcement Logic:
-            # If win rate is high (>70%), lower threshold slightly to capture more setups
-            # If win rate drops (<60%), stiffen threshold to filter out low-conviction noise
             if win_rate >= 0.70:
                 weights["base_win_rate"] = min(weights["base_win_rate"] + 0.01, 0.65)
                 weights["sentiment_weight"] = round(weights["sentiment_weight"] * 1.02, 2)
@@ -78,3 +80,5 @@ class SelfLearningQuantEngine:
             print(f"[🧠] SELF-LEARNING ENGINE UPGRADED WEIGHTS | Win Rate: {win_rate*100:.1f}% | Base WR: {weights['base_win_rate']}")
         except Exception as e:
             print(f"[!] Self-learning training error: {e}")
+
+        return weights
