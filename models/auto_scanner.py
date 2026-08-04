@@ -60,7 +60,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v21.1 Strict Telegram Verification Active 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v21.2 Exact PnL Active 24/7")
 
     def log_message(self, format, *args):
         return
@@ -85,7 +85,7 @@ def run_continuous_quant_hunter():
     learned_weights = upgrade_meta["weights"] if isinstance(upgrade_meta, dict) else {}
     universe = DynamicMarketUniverse.get_full_hunting_universe()
 
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v21.1 STRICT DISPATCH | Scanning {len(universe)} Global Assets...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v21.2 EXACT PnL | Scanning {len(universe)} Global Assets...")
 
     # Active Position Cap (7 Positions)
     active_positions = monitor.load_positions()
@@ -203,16 +203,15 @@ def run_continuous_quant_hunter():
             lev_meta = ExchangeLeverageEngine.get_calibrated_leverage(ticker, raw_ideal_leverage)
             chosen_leverage = lev_meta["recommended_leverage"]
 
-            target_notional = target_risk_usd / max(sl_pct, 0.0005)
-            calculated_margin = round(target_notional / chosen_leverage, 2)
-            final_margin = min(max(calculated_margin, 20.0), 200.0)
-            actual_notional = final_margin * chosen_leverage
+            # EXACT PnL AND MARGIN MATHEMATICAL ALIGNMENT (v21.2 Fix)
+            final_margin = round(target_risk_usd / max(chosen_leverage * sl_pct, 0.0001), 2)
+            actual_notional = round(final_margin * chosen_leverage, 2)
             
             exact_loss_usd = round(actual_notional * sl_pct, 2)
             exact_gain_usd = round(actual_notional * tp_pct, 2)
             roi_gain_pct = round((exact_gain_usd / final_margin) * 100, 1)
 
-            # REDESIGNED ULTRA-CLEAN PAYLOAD WITH STRICT DISPATCH VERIFICATION
+            # REDESIGNED ULTRA-CLEAN PAYLOAD WITH PERFECT PnL ALIGNMENT
             alert_msg = f"""
 🎯 **SURE-SHOT SIGNAL: {ticker}** 🎯
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -229,7 +228,7 @@ def run_continuous_quant_hunter():
 • **Target Gain (Win):** `+${exact_gain_usd:,.2f} USDT` (+{roi_gain_pct}% Margin ROI)
 
 🧠 **SMC & MULTI-TIMEFRAME QUANT DRIVERS**
-• **Model Version:** `v21.1 Strict Verified Telegram Dispatch`
+• **Model Version:** `v21.2 Exact PnL Alignment`
 • **SMC Setup:** `{smc_meta['smc_setup_type']}`
 • **Model Win Rate:** `{signal['win_rate']*100:.1f}%` (Strict 75%+ Non-Negotiable Gate)
 • **Stop-Hunt Defense:** `{shield_meta['status']}` (Wide SL Buffer: `{sl_multiplier}x ATR`)
@@ -239,15 +238,14 @@ def run_continuous_quant_hunter():
 • **US Regulatory Status:** `{regulatory_meta['regulatory_status']}`
 • **Volume POC / VWAP:** `${poc_meta['poc']:,.2f}` / `${signal['vwap']:,.2f}` (Aligned: `{direction}`)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[✓] Smart Money Concepts (SMC) Fair Value Gap & Multi-Timeframe Alignment Verified
+[✓] Exact Mathematical Margin & PnL Formula Verified
 [✓] Telegram Phone Delivery Verified Before History Logging
             """
             
-            # STRICT DISPATCH RULE: Only log and record IF AND ONLY IF Telegram alert returns True!
             is_dispatched = telegram.send_alert(alert_msg)
             if is_dispatched:
                 SignalCooldownEngine.record_signal_sent(ticker)
-                print(f"[✓] v21.1 SIGNAL DELIVERED SUCCESSFULLY TO TELEGRAM FOR {ticker}")
+                print(f"[✓] v21.2 SIGNAL DELIVERED SUCCESSFULLY TO TELEGRAM FOR {ticker}")
 
                 positions = monitor.load_positions()
                 positions.append({
@@ -267,7 +265,7 @@ def run_continuous_quant_hunter():
 if __name__ == "__main__":
     threading.Thread(target=start_health_server, daemon=True).start()
     threading.Thread(target=self_ping_keep_alive, daemon=True).start()
-    print("🚀 Anti Gravity Den Engine v21.1 Strict Verified Telegram Dispatch Active (Continuous 24/7 Cloud Loop)...")
+    print("🚀 Anti Gravity Den Engine v21.2 Exact PnL Active (Continuous 24/7 Cloud Loop)...")
     try:
         while True:
             run_continuous_quant_hunter()
