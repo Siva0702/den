@@ -314,16 +314,20 @@ def run_continuous_quant_hunter():
         print(f"[!] Error in quant hunter loop: {loop_err}", flush=True)
 
 def start_background_scanner_loop():
-    print("🚀 Starting Den Engine v26.0 Dedicated Background Scanner Thread...", flush=True)
+    print("🚀 Starting Den Engine v29.0 Dedicated Background Scanner Loop...", flush=True)
+    telegram.send_alert("🚀 **DEN ENGINE v29.0 RENDER CLOUD ONLINE!** 🚀\n\nScanning 100+ Global Assets Continuously 24/7. Signals will arrive here automatically!")
     while True:
         try:
             run_continuous_quant_hunter()
         except Exception as e:
             print(f"[!] Exception in background scanner loop: {e}", flush=True)
-        time.sleep(10)
+            telegram.send_alert(f"⚠️ Scanner Loop Exception Recovered: {e}")
+        time.sleep(15)
 
 if __name__ == "__main__":
-    threading.Thread(target=start_background_scanner_loop, daemon=True).start()
-    threading.Thread(target=self_ping_keep_alive, daemon=True).start()
-    print("🚀 Den Engine v26.0 Serving Main Process HTTP Health Server on Render Cloud...", flush=True)
+    t_scan = threading.Thread(target=start_background_scanner_loop, daemon=False)
+    t_scan.start()
+    t_ping = threading.Thread(target=self_ping_keep_alive, daemon=True)
+    t_ping.start()
+    print("🚀 Den Engine v29.0 Serving Main Process HTTP Health Server on Render Cloud...", flush=True)
     start_health_server()
