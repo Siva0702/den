@@ -268,8 +268,9 @@ def run_continuous_quant_hunter():
                     is_dispatched = telegram.send_alert(alert_msg)
                     if is_dispatched:
                         SignalCooldownEngine.record_signal_sent(ticker)
-                        print(f"[✓] v26.0 SIGNAL DELIVERED SUCCESSFULLY TO TELEGRAM FOR {ticker}", flush=True)
+                        print(f"[✓] v27.0 SIGNAL DELIVERED SUCCESSFULLY TO TELEGRAM FOR {ticker}", flush=True)
 
+                        # 1. Log to Engine Active Monitored Positions
                         positions = monitor.load_positions()
                         positions.append({
                             "ticker": ticker,
@@ -277,13 +278,35 @@ def run_continuous_quant_hunter():
                             "entry_price": entry,
                             "stop_loss": sl,
                             "take_profit": tp,
+                            "win_rate": signal["win_rate"],
                             "time": time.strftime('%Y-%m-%d %H:%M:%S')
                         })
                         monitor.save_positions(positions)
                         
-                        PerformanceTrackRecord.log_trade_signal(
-                            ticker, direction, entry, sl, tp, signal["win_rate"], signal["expected_value"], user_taken=False
-                        )
+                        # 2. Log to Dispatched Signals History (Separately from User Taken Trades)
+                        os.makedirs("portfolio", exist_ok=True)
+                        disp_file = "portfolio/dispatched_signals.json"
+                        dispatched = []
+                        if os.path.exists(disp_file):
+                            try:
+                                with open(disp_file, "r") as f:
+                                    dispatched = json.load(f)
+                            except Exception:
+                                dispatched = []
+                        dispatched.append({
+                            "ticker": ticker,
+                            "direction": direction,
+                            "entry_price": entry,
+                            "stop_loss": sl,
+                            "take_profit": tp,
+                            "win_rate": signal["win_rate"],
+                            "time": time.strftime('%Y-%m-%d %H:%M:%S')
+                        })
+                        try:
+                            with open(disp_file, "w") as f:
+                                json.dump(dispatched, f, indent=2)
+                        except Exception as e:
+                            print(f"[!] Error writing dispatched_signals.json: {e}")
             except Exception as item_err:
                 print(f"[!] Error scanning {item.get('ticker')}: {item_err}", flush=True)
                 continue

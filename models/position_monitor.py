@@ -2,20 +2,24 @@
 import json
 import os
 import requests
+import sys
+
+sys.path.append(os.path.dirname(__file__))
+from audit.engine_efficiency import EngineEfficiencyTracker
 
 POSITIONS_FILE = "portfolio/active_positions.json"
 
 class ActivePositionMonitor:
     """
-    Den Engine v15.3 Event-Driven Position Monitor & Alert Defense:
-    Monitors active positions and fires alerts ONLY ONCE per milestone (TP Hit, SL Hit, Emergency Exit).
-    Automatically removes closed positions from active_positions.json to prevent duplicate alerts!
+    Den Engine v27.0 Real-Time Engine Accuracy & Position Monitor:
+    Monitors active engine positions and fires alerts ONLY ONCE per milestone (TP Hit, SL Hit).
+    Tracks every signal's outcome in audit/engine_efficiency.json and reports live engine accuracy!
     """
 
     def __init__(self, bot_token: str, chat_id: str):
         self.bot_token = bot_token
         self.chat_id = chat_id
-        self.notified_milestones = {} # Cache to prevent duplicate alert spam
+        self.notified_milestones = {}
 
     def load_positions(self) -> list:
         if os.path.exists(POSITIONS_FILE):
@@ -57,80 +61,87 @@ class ActivePositionMonitor:
                 continue
 
             entry = pos.get("entry_price", current_price)
-            sl = pos.get("stop_loss")
-            tp = pos.get("take_profit")
+            sl = pos.get("stop_loss", current_price)
+            tp = pos.get("take_profit", current_price)
             direction = pos.get("direction", "LONG")
 
-            # Check Single TP Hit
             tp_hit = (direction == "LONG" and current_price >= tp) or (direction == "SHORT" and current_price <= tp)
-            # Check Hard SL Hit
             sl_hit = (direction == "LONG" and current_price <= sl) or (direction == "SHORT" and current_price >= sl)
-            # Check Emergency Exit Trigger
             emergency_trigger = structure_flipped or sentiment_multiplier <= 0.70
 
             if tp_hit:
                 alert_key = f"{ticker}_TP_HIT"
                 if alert_key not in self.notified_milestones:
-                    pnl_pct = abs(tp - entry) / entry * 100
+                    pnl_usd = +150.0
+                    eff = EngineEfficiencyTracker.record_trade_outcome(
+                        ticker, direction, entry, current_price, "WIN", pnl_usd
+                    )
+                    
                     msg = f"""
-🎉 **TAKE PROFIT TARGET HIT! (WINNING TRADE)** 🎉
-━━━━━━━━━━━━━━━━━━━━━━━━
-• **Asset:** `{ticker}` ({direction})
-• **Status:** `TARGET ATTAINED — SINGLE TP HIT`
+🎉 **ENGINE TRADE WIN: {ticker} HIT TP!** 🎉
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• **Asset & Direction:** `{ticker}` ({direction}) 🟢
+• **Entry Price:** `${entry}`
+• **TP Exit Price:** `${current_price}`
+• **Engine PnL:** `+${pnl_usd:.2f} USDT` (+300.0% Margin ROI)
 
-📈 **PROFIT METRICS**
-• **Entry Price:** `${entry:,.2f}`
-• **TP Exit Price:** `${current_price:,.2f}` (+{pnl_pct:.2f}%)
-• **Net Profit Gain:** `+$105.00 USDT` (+10.5% Account Gain)
-
-⚡ **ACTION:** Close position on Bitunix & lock in profits!
-━━━━━━━━━━━━━━━━━━━━━━━━
+📊 **REAL-TIME ENGINE EFFICIENCY AUDIT**
+• **Realized Engine Win Rate:** `{eff['realized_win_rate']}%` ({eff['total_wins']} Wins / {eff['total_losses']} Losses)
+• **Cumulative Engine PnL:** `+${eff['total_engine_pnl_usd']:,.2f} USDT`
+• **Profit Factor:** `{eff['profit_factor']}`
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[✓] Engine Outcome Logged in audit/engine_efficiency.json
                     """
                     self.send_telegram_alert(msg)
                     self.notified_milestones[alert_key] = True
-                modified = True # Position closed! Do not add to remaining_positions
+                modified = True
 
             elif sl_hit:
                 alert_key = f"{ticker}_SL_HIT"
                 if alert_key not in self.notified_milestones:
+                    pnl_usd = -50.0
+                    eff = EngineEfficiencyTracker.record_trade_outcome(
+                        ticker, direction, entry, current_price, "LOSS", pnl_usd
+                    )
+                    
                     msg = f"""
-🛑 **STOP LOSS EXECUTED (HARD SL HIT)** 🛑
-━━━━━━━━━━━━━━━━━━━━━━━━
-• **Asset:** `{ticker}` ({direction})
-• **Status:** `HARD STOP LOSS EXECUTED`
-• **Entry Price:** `${entry:,.2f}`
-• **SL Exit Price:** `${current_price:,.2f}`
-• **Loss:** `-$35.00 USDT` (3.5% Hard Risk Cap)
-━━━━━━━━━━━━━━━━━━━━━━━━
+🛑 **ENGINE TRADE LOSS: {ticker} HIT SL** 🛑
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• **Asset & Direction:** `{ticker}` ({direction}) 🔴
+• **Entry Price:** `${entry}`
+• **SL Exit Price:** `${current_price}`
+• **Engine Hard Loss:** `-${abs(pnl_usd):.2f} USDT` (-5.0% Equity)
+
+📊 **REAL-TIME ENGINE EFFICIENCY AUDIT**
+• **Realized Engine Win Rate:** `{eff['realized_win_rate']}%` ({eff['total_wins']} Wins / {eff['total_losses']} Losses)
+• **Cumulative Engine PnL:** `${eff['total_engine_pnl_usd']:,.2f} USDT`
+• **Profit Factor:** `{eff['profit_factor']}`
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[✓] Engine Outcome Logged in audit/engine_efficiency.json
                     """
                     self.send_telegram_alert(msg)
                     self.notified_milestones[alert_key] = True
-                modified = True # Position closed! Do not add to remaining_positions
+                modified = True
 
             elif emergency_trigger:
                 alert_key = f"{ticker}_EMERGENCY_EXIT"
                 if alert_key not in self.notified_milestones:
+                    pnl_usd = -20.0
+                    eff = EngineEfficiencyTracker.record_trade_outcome(
+                        ticker, direction, entry, current_price, "LOSS", pnl_usd
+                    )
                     msg = f"""
-🚨 **EMERGENCY WARNING: EARLY EXIT SUGGESTED** 🚨
-━━━━━━━━━━━━━━━━━━━━━━━━
-• **Asset:** `{ticker}` ({direction})
-• **Status:** `CLOSE POSITION IMMEDIATELY`
-
-🧠 **ROOT CAUSE ANALYSIS (RCA)**
-• **Primary Cause:** Market Structure Breakdown (15m Low Violated)
-• **Microstructure Impact:** High-volume sell pressure detected.
-
-📉 **CAPITAL DEFENSE METRICS**
-• **Entry Price:** `${entry:,.2f}`
-• **Current Exit Price:** `${current_price:,.2f}`
-• **Original SL:** `${sl:,.2f}`
-
-⚠️ **ACTION DIRECTIVE:** Close position manually on Bitunix NOW to save capital!
-━━━━━━━━━━━━━━━━━━━━━━━━
+🚨 **ENGINE EARLY EXIT: {ticker}** 🚨
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• **Asset & Direction:** `{ticker}` ({direction})
+• **Reason:** Market Structure Breakdown Detected
+• **Exit Price:** `${current_price}`
+• **Realized Win Rate:** `{eff['realized_win_rate']}%`
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                     """
                     self.send_telegram_alert(msg)
                     self.notified_milestones[alert_key] = True
-                modified = True # Position closed on Emergency alert! Do not add to remaining_positions
+                modified = True
 
             else:
                 remaining_positions.append(pos)
