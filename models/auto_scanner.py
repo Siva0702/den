@@ -70,7 +70,6 @@ def start_health_server():
     server.serve_forever()
 
 def run_continuous_quant_hunter():
-    # 0. Trigger Autonomous Self-Upgrade Cycle
     upgrade_meta = AutonomousSelfUpgraderDaemon.execute_self_upgrade_cycle()
     learned_weights = upgrade_meta["weights"]
     universe = DynamicMarketUniverse.get_full_hunting_universe()
@@ -124,7 +123,7 @@ def run_continuous_quant_hunter():
         # 2. Orderbook Spread & Slippage Protection
         slippage_meta = InstitutionalSlippageDefense.audit_spread_and_slippage(df)
         if slippage_meta["is_high_slippage"]:
-            continue # Rejects illiquid spreads to protect execution!
+            continue
 
         # 3. Strict 4-Hour Ticker Cooldown Audit
         if not SignalCooldownEngine.can_send_signal(ticker):
@@ -150,7 +149,10 @@ def run_continuous_quant_hunter():
         orderflow = InstitutionalOrderFlowEngine.analyze_orderflow(df)
 
         # 7. DEEP REASONING & MANIPULATION AUDIT
-        preliminary_direction = "LONG" if df.iloc[-1]['close'] > df.iloc[-1]['ema_20'] if 'ema_20' in df.columns else True else "SHORT"
+        has_ema = 'ema_20' in df.columns
+        is_above_ema = df.iloc[-1]['close'] > df.iloc[-1]['ema_20'] if has_ema else df.iloc[-1]['close'] > df.iloc[-1]['open']
+        preliminary_direction = "LONG" if is_above_ema else "SHORT"
+        
         reasoning_meta = DeepReasoningQuantEngine.audit_setup_authenticity(
             df, sm, orderflow["buy_ratio"], preliminary_direction
         )
