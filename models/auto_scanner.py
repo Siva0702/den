@@ -130,11 +130,12 @@ def telegram_cloud_heartbeat():
 • **Gate Criteria:** `75.0%+ Win Rate & SMC Confluence`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [✓] Render Cloud Host is Active & Processing Market Candles 24/7/365
-            """
+"""
             telegram.send_alert(heartbeat_msg)
         except Exception as e:
             print(f"[!] Heartbeat pulse exception: {e}", flush=True)
-        time.sleep(60) # Pulse every 60 seconds
+        time.sleep(900) # Heartbeat pulse every 15 minutes to keep chat clean
+
 
 def run_continuous_quant_hunter():
     try:
