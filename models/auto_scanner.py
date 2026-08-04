@@ -400,8 +400,8 @@ def run_continuous_quant_hunter():
             candidates.sort(key=lambda x: (x["total_score"], x["win_rate"]), reverse=True)
             best = candidates[0]
 
-            # Only dispatch if score meets minimum threshold (50+ = QUALIFIED)
-            if best["total_score"] >= 50:
+            # Only dispatch if score meets high conviction threshold (78+ = HIGH CONVICTION / SURE SHOT ONLY)
+            if best["total_score"] >= 78.0:
                 ticker = best["ticker"]
                 direction = best["direction"]
                 entry = best["entry"]
