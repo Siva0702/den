@@ -88,7 +88,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v25.0 Final Production Engine Active 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v26.0 User-Friendly Redesign Active 24/7")
 
     def log_message(self, format, *args):
         return
@@ -105,7 +105,7 @@ def start_health_server():
 def self_ping_keep_alive():
     url = "https://den-quant-scanner.onrender.com/"
     while True:
-        time.sleep(120) # Ping every 2 mins to keep container 100% active
+        time.sleep(120)
         try:
             requests.get(url, timeout=10)
         except Exception:
@@ -117,7 +117,7 @@ def run_continuous_quant_hunter():
         learned_weights = upgrade_meta["weights"] if isinstance(upgrade_meta, dict) else {}
         universe = DynamicMarketUniverse.get_full_hunting_universe()
 
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v25.0 PRODUCTION | Scanning {len(universe)} Global Assets...", flush=True)
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v26.0 REDESIGN | Scanning {len(universe)} Global Assets...", flush=True)
 
         active_positions = monitor.load_positions()
         if len(active_positions) >= 7:
@@ -166,7 +166,6 @@ def run_continuous_quant_hunter():
                 if slippage_meta["is_high_slippage"]:
                     continue
 
-                # OUTCOME-BASED COOLDOWN (Suppresses ticker ONLY while position is open)
                 if not SignalCooldownEngine.can_send_signal(ticker):
                     continue
 
@@ -212,10 +211,9 @@ def run_continuous_quant_hunter():
                     risk_params = CapitalDefenseShield.get_dynamic_risk_params(ACCOUNT_BALANCE, signal["win_rate"])
                     target_risk_usd = risk_params["dollars_at_risk"]
 
-                    # DYNAMIC PRECISION SL & TP CALCULATION
                     sl_multiplier = max(regime_meta["sl_multiplier"], shield_meta["sl_buffer_atr"])
                     sl_dist = max(signal["atr"] * sl_multiplier, entry * 0.008)
-                    tp_dist = sl_dist * 3.0 # EXACT 1:3.0 KELLY PAYOUT
+                    tp_dist = sl_dist * 3.0
 
                     raw_sl = entry - sl_dist if direction == "LONG" else entry + sl_dist
                     raw_tp = entry + tp_dist if direction == "LONG" else entry - tp_dist
@@ -229,8 +227,6 @@ def run_continuous_quant_hunter():
                     if sl_pct < 0.001:
                         continue
 
-                    rr_ratio = round(tp_pct / sl_pct, 2)
-                    
                     duration_meta = PrecisionDurationEstimator.calculate_estimated_duration(
                         entry, tp, signal["atr"], velocity_meta["velocity_ratio"]
                     )
@@ -239,49 +235,40 @@ def run_continuous_quant_hunter():
                     lev_meta = ExchangeLeverageEngine.get_calibrated_leverage(ticker, raw_ideal_leverage)
                     chosen_leverage = lev_meta["recommended_leverage"]
 
-                    # EXACT MATHEMATICAL KELLY PnL AND MARGIN SIZING
                     final_margin = round(target_risk_usd / max(chosen_leverage * sl_pct, 0.0001), 2)
                     actual_notional = round(final_margin * chosen_leverage, 2)
                     
                     exact_loss_usd = round(actual_notional * sl_pct, 2)
                     exact_gain_usd = round(actual_notional * tp_pct, 2)
                     roi_gain_pct = round((exact_gain_usd / final_margin) * 100, 1)
+                    win_rate_pct = round(signal["win_rate"] * 100, 1)
 
+                    dir_emoji = "🟢" if direction == "LONG" else "🔴"
+                    action_str = "LONG (BUY)" if direction == "LONG" else "SHORT (SELL)"
+
+                    # ULTRA-CLEAN USER-FRIENDLY PAYLOAD (v26.0 Redesign)
                     alert_msg = f"""
-🎯 **SURE-SHOT SIGNAL: {ticker}** 🎯
+{dir_emoji} **{action_str}: {ticker}**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚡ **EXECUTION DATA (ENTRY CHEATSHEET)**
-• **Asset & Exchange:** `{ticker}` ({lev_meta['primary_exchange']})
-• **Direction:** `{direction}` 🚀
-• **Entry Price:** `{format_price_dynamic(entry)}`
-• **Take Profit (TP):** `{format_price_dynamic(tp)}` (+{tp_pct*100:.2f}%)  <-- SINGLE TP (1:3.0 R:R)
-• **Stop Loss (SL):** `{format_price_dynamic(sl)}` (-{sl_pct*100:.2f}%)  [Wide Liquidity Shield]
-• **Leverage:** `{chosen_leverage}x Isolated` (Max: `{lev_meta['max_exchange_leverage']}x`)
-• **Required Margin:** `${final_margin:,.2f} USDT` (Notional: `${actual_notional:,.2f}`)
-• **Risk-to-Reward:** `1:{rr_ratio:.2f}` (Kelly Payout Target)
-• **Est. Trade Horizon:** `{duration_meta['formatted_label']}` ⏱️
-• **Hard Risk (Loss):** `-${exact_loss_usd:,.2f} USDT` (-{exact_loss_usd/ACCOUNT_BALANCE*100:.1f}% Equity)
-• **Target Gain (Win):** `+${exact_gain_usd:,.2f} USDT` (+{roi_gain_pct}% Margin ROI)
+🏆 **WIN RATE:** `{win_rate_pct}%` (Strict 75%+ Gate)
+📍 **ENTRY:** `{format_price_dynamic(entry)}`
+🎯 **TAKE PROFIT (TP):** `{format_price_dynamic(tp)}` (+{tp_pct*100:.2f}%)
+🛡️ **STOP LOSS (SL):** `{format_price_dynamic(sl)}` (-{sl_pct*100:.2f}%)
 
-🧠 **SMC & MULTI-TIMEFRAME QUANT DRIVERS**
-• **Model Version:** `v25.0 Final Production Engine`
-• **SMC Setup:** `{smc_meta['smc_setup_type']}`
-• **Model Win Rate:** `{signal['win_rate']*100:.1f}%` (Strict 75%+ Non-Negotiable Gate)
-• **Stop-Hunt Defense:** `{shield_meta['status']}` (Wide SL Buffer: `{sl_multiplier}x ATR`)
-• **Deep Audit:** `{reasoning_meta['reasoning_verdict']}`
-• **Market Regime:** `{regime_meta['regime']}` (Vol Expansion: `{regime_meta['vol_expansion_ratio']}x`)
-• **Taker Buy Orderflow:** `{orderflow['buy_ratio']}%` (Buying Influx)
-• **US Regulatory Status:** `{regulatory_meta['regulatory_status']}`
-• **Volume POC / VWAP:** `${poc_meta['poc']:,.2f}` / `${signal['vwap']:,.2f}` (Aligned: `{direction}`)
+💰 **REQUIRED MARGIN:** `${final_margin:,.2f} USDT` (`{chosen_leverage}x Isolated`)
+📈 **TARGET GAIN:** `+${exact_gain_usd:,.2f} USDT` (+{roi_gain_pct}% ROI)
+📉 **HARD RISK:** `-${exact_loss_usd:,.2f} USDT` (-{exact_loss_usd/ACCOUNT_BALANCE*100:.1f}% Equity)
+⏱️ **EST. HORIZON:** `{duration_meta['formatted_label']}`
+🏛️ **EXCHANGE:** `{lev_meta['primary_exchange']}`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[✓] Smart Money Concepts (SMC) Fair Value Gap & Multi-Timeframe Alignment Verified
-[✓] Market Maker Stop-Hunt & Liquidity Sweep Protection Active
+[✓] SMC Fair Value Gap & Multi-Timeframe Alignment Verified
+[✓] 1.8x ATR Wide Liquidity Sweep Defense Active
                     """
                     
                     is_dispatched = telegram.send_alert(alert_msg)
                     if is_dispatched:
                         SignalCooldownEngine.record_signal_sent(ticker)
-                        print(f"[✓] v25.0 SIGNAL DELIVERED SUCCESSFULLY TO TELEGRAM FOR {ticker}", flush=True)
+                        print(f"[✓] v26.0 SIGNAL DELIVERED SUCCESSFULLY TO TELEGRAM FOR {ticker}", flush=True)
 
                         positions = monitor.load_positions()
                         positions.append({
@@ -304,7 +291,7 @@ def run_continuous_quant_hunter():
         print(f"[!] Error in quant hunter loop: {loop_err}", flush=True)
 
 def start_background_scanner_loop():
-    print("🚀 Starting Den Engine v25.0 Dedicated Background Scanner Thread...", flush=True)
+    print("🚀 Starting Den Engine v26.0 Dedicated Background Scanner Thread...", flush=True)
     while True:
         try:
             run_continuous_quant_hunter()
@@ -313,10 +300,7 @@ def start_background_scanner_loop():
         time.sleep(10)
 
 if __name__ == "__main__":
-    # 1. Start continuous 24/7 background quant scanner thread
     threading.Thread(target=start_background_scanner_loop, daemon=True).start()
-    # 2. Start continuous keep-alive ping thread
     threading.Thread(target=self_ping_keep_alive, daemon=True).start()
-    # 3. Main process serves HTTP health server so Render Web Service NEVER sleeps or suspends!
-    print("🚀 Den Engine v25.0 Serving Main Process HTTP Health Server on Render Cloud...", flush=True)
+    print("🚀 Den Engine v26.0 Serving Main Process HTTP Health Server on Render Cloud...", flush=True)
     start_health_server()
