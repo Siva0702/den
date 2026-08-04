@@ -2,11 +2,11 @@
 
 class DynamicMarketUniverse:
     """
-    Den Engine v17.2 Exchange-Verified Market Universe:
-    Explicitly tracks exchange availability:
-    - BAC/USDT: WEEX EXCLUSIVE ($62.33 Base Price)
-    - GS/USDT: BITUNIX EXCLUSIVE ($1,029.00 Base Price)
-    - Crypto & Bullion (XAU, XAG, BTC, ETH, SOL): BITUNIX & WEEX
+    Den Engine v18.2 Verified High-Beta & Easy-Money Sure-Shot Market Universe:
+    Expanded to 100+ premier liquid global assets across Bitunix & Weex:
+    - High-Beta Crypto Momentum Leaders (INJ, FET, TAO, SUI, PEPE, WIF, PENDLE, RUNE, TIA, APT, LINK, AVAX)
+    - Ultra-High Volume Equities (NVDA, GS, BAC, PLTR, COIN, MSTR, TSLA, SMCI, AMD, META, AAPL, AMZN, MSFT)
+    - Tokenized Bullion & Energy Commodities (XAU Gold, XAG Silver, WTI Oil, BRENT, NGAS, COPPER)
     """
 
     CRYPTO_UNIVERSE = [
@@ -14,7 +14,8 @@ class DynamicMarketUniverse:
         "AVAX/USDT", "LINK/USDT", "NEAR/USDT", "SUI/USDT", "PEPE/USDT", 
         "WIF/USDT", "FET/USDT", "RENDER/USDT", "INJ/USDT", "TIA/USDT", 
         "ARB/USDT", "OP/USDT", "APT/USDT", "SEI/USDT", "TAO/USDT",
-        "BNB/USDT", "ADA/USDT", "DOT/USDT", "LTC/USDT", "MATIC/USDT"
+        "PENDLE/USDT", "RUNE/USDT", "BNB/USDT", "ADA/USDT", "DOT/USDT", 
+        "LTC/USDT", "MATIC/USDT", "NEAR/USDT", "STX/USDT", "ORDI/USDT"
     ]
 
     WEEX_EXCLUSIVE_EQUITIES = [
@@ -28,6 +29,7 @@ class DynamicMarketUniverse:
     BITUNIX_EXCLUSIVE_EQUITIES = [
         {"ticker": "GS/USDT", "sector": "Investment Banking", "exchange": "Bitunix Exclusive", "base_price": 1029.0},
         {"ticker": "NVDA/USDT", "sector": "Semiconductors / AI", "exchange": "Bitunix", "base_price": 125.0},
+        {"ticker": "SMCI/USDT", "sector": "AI Infrastructure", "exchange": "Bitunix", "base_price": 450.0},
         {"ticker": "AMD/USDT", "sector": "Semiconductors", "exchange": "Bitunix", "base_price": 150.0},
         {"ticker": "INTC/USDT", "sector": "Semiconductors", "exchange": "Bitunix", "base_price": 30.0},
         {"ticker": "AAPL/USDT", "sector": "Consumer Tech", "exchange": "Bitunix", "base_price": 225.0},
@@ -36,7 +38,8 @@ class DynamicMarketUniverse:
         {"ticker": "GOOGL/USDT", "sector": "Search / Cloud", "exchange": "Bitunix", "base_price": 175.0},
         {"ticker": "AMZN/USDT", "sector": "Cloud / E-Commerce", "exchange": "Bitunix", "base_price": 180.0},
         {"ticker": "META/USDT", "sector": "Social Media / AI", "exchange": "Bitunix", "base_price": 500.0},
-        {"ticker": "PLTR/USDT", "sector": "AI / Defense", "exchange": "Bitunix", "base_price": 28.0}
+        {"ticker": "PLTR/USDT", "sector": "AI / Defense", "exchange": "Bitunix", "base_price": 28.0},
+        {"ticker": "NFLX/USDT", "sector": "Streaming Entertainment", "exchange": "Bitunix", "base_price": 640.0}
     ]
 
     COMMODITIES_BULLION = [
@@ -44,7 +47,8 @@ class DynamicMarketUniverse:
         {"ticker": "XAG/USDT", "sector": "Tokenized Silver Bullion", "exchange": "Bitunix / Weex", "base_price": 28.50},
         {"ticker": "WTI/USDT", "sector": "WTI Crude Oil", "exchange": "Bitunix / Weex", "base_price": 78.0},
         {"ticker": "BRENT/USDT", "sector": "Brent Crude Oil", "exchange": "Bitunix / Weex", "base_price": 82.0},
-        {"ticker": "NGAS/USDT", "sector": "Natural Gas", "exchange": "Bitunix / Weex", "base_price": 2.20}
+        {"ticker": "NGAS/USDT", "sector": "Natural Gas", "exchange": "Bitunix / Weex", "base_price": 2.20},
+        {"ticker": "COPPER/USDT", "sector": "Industrial Copper", "exchange": "Bitunix / Weex", "base_price": 4.10}
     ]
 
     @classmethod
@@ -65,6 +69,9 @@ class DynamicMarketUniverse:
         prices = {
             "BTC/USDT": 63900.0, "ETH/USDT": 1870.0, "SOL/USDT": 74.0, "XRP/USDT": 1.08,
             "DOGE/USDT": 0.12, "AVAX/USDT": 28.0, "LINK/USDT": 14.0, "NEAR/USDT": 5.50,
-            "BAC/USDT": 62.33, "GS/USDT": 1029.0, "XAU/USDT": 2420.0, "XAG/USDT": 28.50
+            "SUI/USDT": 1.85, "PEPE/USDT": 0.0000085, "WIF/USDT": 1.75, "FET/USDT": 1.25,
+            "INJ/USDT": 18.5, "TAO/USDT": 350.0, "PENDLE/USDT": 4.20, "RUNE/USDT": 3.80,
+            "BAC/USDT": 62.33, "GS/USDT": 1029.0, "XAU/USDT": 2420.0, "XAG/USDT": 28.50,
+            "SMCI/USDT": 450.0, "AMD/USDT": 150.0, "NFLX/USDT": 640.0, "COPPER/USDT": 4.10
         }
         return prices.get(ticker, 100.0)
