@@ -1,53 +1,33 @@
 # models/alerts/signal_cooldown.py
-import time
 import json
 import os
 
-COOLDOWN_FILE = "portfolio/signal_cooldown.json"
-FOUR_HOURS_SECONDS = 4 * 3600 # 4 Hours Cooldown per Ticker
+POSITIONS_FILE = "portfolio/active_positions.json"
 
 class SignalCooldownEngine:
     """
-    Den Engine v15.1 Zero-Spam Signal Cooldown & Deduplication:
-    Enforces a strict 4-hour cooldown per ticker so Telegram is NEVER spammed with duplicate signals.
-    Caps total active signals to MAX 2 at any given time.
+    Den Engine v23.0 Outcome-Based Dynamic Cooldown:
+    Replaces arbitrary 4-hour time limits with Active Position Outcome Tracking.
+    - If a ticker has an ACTIVE OPEN TRADE, duplicate signals for that ticker are blocked.
+    - As soon as the trade hits TP or SL (position closes), the ticker is IMMEDIATELY UNLOCKED for fresh signals!
     """
 
     @classmethod
     def can_send_signal(cls, ticker: str) -> bool:
-        now = time.time()
-        cooldowns = {}
-
-        if os.path.exists(COOLDOWN_FILE):
+        if os.path.exists(POSITIONS_FILE):
             try:
-                with open(COOLDOWN_FILE, "r") as f:
-                    cooldowns = json.load(f)
-            except Exception:
-                cooldowns = {}
+                with open(POSITIONS_FILE, "r") as f:
+                    positions = json.load(f)
+                    for pos in positions:
+                        if pos.get("ticker") == ticker:
+                            print(f"[🛡️] Signal Suppressed for {ticker}: Trade currently ACTIVE in position monitor.")
+                            return False # Block duplicate signal while position is open!
+            except Exception as e:
+                print(f"[!] Error reading active positions for cooldown check: {e}")
 
-        last_sent = cooldowns.get(ticker, 0)
-        if (now - last_sent) < FOUR_HOURS_SECONDS:
-            remaining_mins = int((FOUR_HOURS_SECONDS - (now - last_sent)) / 60)
-            print(f"[🛡️] Signal Suppressed for {ticker}: Sent recently ({remaining_mins}m cooldown remaining)")
-            return False # Block duplicate signal!
-
-        return True
+        return True # Trade has closed or is not active -> Free to send fresh signal!
 
     @classmethod
     def record_signal_sent(cls, ticker: str):
-        now = time.time()
-        cooldowns = {}
-
-        if os.path.exists(COOLDOWN_FILE):
-            try:
-                with open(COOLDOWN_FILE, "r") as f:
-                    cooldowns = json.load(f)
-            except Exception:
-                cooldowns = {}
-
-        cooldowns[ticker] = now
-        try:
-            with open(COOLDOWN_FILE, "w") as f:
-                json.dump(cooldowns, f, indent=2)
-        except Exception as e:
-            print(f"[!] Error writing cooldown file: {e}")
+        # Position is logged directly in active_positions.json by position monitor
+        pass

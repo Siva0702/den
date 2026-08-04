@@ -9,6 +9,9 @@ import numpy as np
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
 
+# Ensure instant unbuffered log flushing for Render Cloud
+sys.stdout.reconfigure(line_buffering=True)
+
 # Import internal modules
 sys.path.append(os.path.dirname(__file__))
 from indicators.confluence_engine import SureShotConfluenceEngine
@@ -60,7 +63,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v22.0 Institutional Precision Engine Active 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v23.0 Outcome-Based Engine Active 24/7")
 
     def log_message(self, format, *args):
         return
@@ -69,15 +72,15 @@ def start_health_server():
     try:
         port = int(os.getenv("PORT", 10000))
         server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-        print(f"[✓] Render Cloud Server listening on port {port} (Main HTTP Process Active 24/7)")
+        print(f"[✓] Render Cloud Server listening on port {port} (Main HTTP Process Active 24/7)", flush=True)
         server.serve_forever()
     except Exception as e:
-        print(f"[!] Health server exception: {e}")
+        print(f"[!] Health server exception: {e}", flush=True)
 
 def self_ping_keep_alive():
     url = "https://den-quant-scanner.onrender.com/"
     while True:
-        time.sleep(180) # Ping every 3 mins to keep container 100% active
+        time.sleep(120) # Ping every 2 mins to keep container 100% active
         try:
             requests.get(url, timeout=10)
         except Exception:
@@ -89,12 +92,12 @@ def run_continuous_quant_hunter():
         learned_weights = upgrade_meta["weights"] if isinstance(upgrade_meta, dict) else {}
         universe = DynamicMarketUniverse.get_full_hunting_universe()
 
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v22.0 INSTITUTIONAL PRECISION | Scanning {len(universe)} Global Assets...")
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v23.0 OUTCOME-BASED | Scanning {len(universe)} Global Assets...", flush=True)
 
         # Active Position Cap (7 Positions)
         active_positions = monitor.load_positions()
         if len(active_positions) >= 7:
-            print(f"[🛡️] Multi-Position Cap Reached ({len(active_positions)} active trades). Scanner pausing new signal generation.")
+            print(f"[🛡️] Multi-Position Cap Reached ({len(active_positions)} active trades). Scanner pausing new signal generation.", flush=True)
             return
 
         emergency_meta = EmergencyMacroWireEngine.scan_emergency_wire()
@@ -131,7 +134,7 @@ def run_continuous_quant_hunter():
                 current_price = round(df.iloc[-1]['close'], 2)
                 structure_flipped = df.iloc[-1]['close'] < df.iloc[-10]['low']
                 
-                # 1. Continuous Position Defense
+                # 1. Continuous Position Defense (Checks if active trade hit TP or SL!)
                 if is_real:
                     monitor.check_active_positions(ticker, current_price, sm, structure_flipped)
 
@@ -140,7 +143,7 @@ def run_continuous_quant_hunter():
                 if slippage_meta["is_high_slippage"]:
                     continue
 
-                # 3. Strict 4-Hour Ticker Cooldown Audit
+                # 3. OUTCOME-BASED TRADE COOLDOWN (Blocks signal ONLY if trade is currently OPEN in active_positions)
                 if not SignalCooldownEngine.can_send_signal(ticker):
                     continue
 
@@ -191,9 +194,9 @@ def run_continuous_quant_hunter():
                     risk_params = CapitalDefenseShield.get_dynamic_risk_params(ACCOUNT_BALANCE, signal["win_rate"])
                     target_risk_usd = risk_params["dollars_at_risk"]
 
-                    # STRUCTURAL PRECISION TAKE-PROFIT & LIQUIDITY SWEEP SHIELD (v22.0 Innovation)
+                    # STRUCTURAL PRECISION TAKE-PROFIT & LIQUIDITY SWEEP SHIELD
                     sl_multiplier = max(regime_meta["sl_multiplier"], shield_meta["sl_buffer_atr"])
-                    tp_multiplier = min(max(regime_meta["tp_multiplier"], 2.2), 3.0) # Structural realistic TP placement
+                    tp_multiplier = min(max(regime_meta["tp_multiplier"], 2.2), 3.0)
                     
                     sl_dist = signal["atr"] * sl_multiplier
                     tp_dist = signal["atr"] * tp_multiplier
@@ -203,7 +206,7 @@ def run_continuous_quant_hunter():
                     
                     sl_pct = abs(entry - sl) / entry
                     tp_pct = abs(tp - entry) / entry
-                    rr_ratio = round(tp_pct / sl_pct, 2)
+                    rr_ratio = round(tp_pct / max(sl_pct, 0.0001), 2)
                     
                     duration_meta = PrecisionDurationEstimator.calculate_estimated_duration(
                         entry, tp, signal["atr"], velocity_meta["velocity_ratio"]
@@ -238,7 +241,7 @@ def run_continuous_quant_hunter():
 • **Target Gain (Win):** `+${exact_gain_usd:,.2f} USDT` (+{roi_gain_pct}% Margin ROI)
 
 🧠 **SMC & MULTI-TIMEFRAME QUANT DRIVERS**
-• **Model Version:** `v22.0 Institutional Structural Precision`
+• **Model Version:** `v23.0 Outcome-Based Cooldown Engine`
 • **SMC Setup:** `{smc_meta['smc_setup_type']}`
 • **Model Win Rate:** `{signal['win_rate']*100:.1f}%` (Strict 75%+ Non-Negotiable Gate)
 • **Stop-Hunt Defense:** `{shield_meta['status']}` (Wide SL Buffer: `{sl_multiplier}x ATR`)
@@ -248,14 +251,14 @@ def run_continuous_quant_hunter():
 • **US Regulatory Status:** `{regulatory_meta['regulatory_status']}`
 • **Volume POC / VWAP:** `${poc_meta['poc']:,.2f}` / `${signal['vwap']:,.2f}` (Aligned: `{direction}`)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[✓] Structural Order Block & Liquidity Boundary TP Precision Verified
-[✓] Render Cloud Dedicated Daemon Dispatch Loop Active
+[✓] Outcome-Based Cooldown Engine: Unlocks Ticker Instantly Upon TP/SL Hit
+[✓] Render Unbuffered Continuous Logging Active 24/7
                     """
                     
                     is_dispatched = telegram.send_alert(alert_msg)
                     if is_dispatched:
                         SignalCooldownEngine.record_signal_sent(ticker)
-                        print(f"[✓] v22.0 SIGNAL DELIVERED SUCCESSFULLY TO TELEGRAM FOR {ticker}")
+                        print(f"[✓] v23.0 SIGNAL DELIVERED SUCCESSFULLY TO TELEGRAM FOR {ticker}", flush=True)
 
                         positions = monitor.load_positions()
                         positions.append({
@@ -272,18 +275,18 @@ def run_continuous_quant_hunter():
                             ticker, direction, entry, sl, tp, signal["win_rate"], signal["expected_value"], user_taken=False
                         )
             except Exception as item_err:
-                print(f"[!] Error scanning {item.get('ticker')}: {item_err}")
+                print(f"[!] Error scanning {item.get('ticker')}: {item_err}", flush=True)
                 continue
     except Exception as loop_err:
-        print(f"[!] Error in quant hunter loop: {loop_err}")
+        print(f"[!] Error in quant hunter loop: {loop_err}", flush=True)
 
 def start_background_scanner_loop():
-    print("🚀 Starting Den Engine v22.0 Dedicated Background Scanner Thread...")
+    print("🚀 Starting Den Engine v23.0 Dedicated Background Scanner Thread...", flush=True)
     while True:
         try:
             run_continuous_quant_hunter()
         except Exception as e:
-            print(f"[!] Exception in background scanner loop: {e}")
+            print(f"[!] Exception in background scanner loop: {e}", flush=True)
         time.sleep(10)
 
 if __name__ == "__main__":
@@ -292,5 +295,5 @@ if __name__ == "__main__":
     # 2. Start continuous keep-alive ping thread
     threading.Thread(target=self_ping_keep_alive, daemon=True).start()
     # 3. Main process serves HTTP health server so Render Web Service NEVER sleeps or suspends!
-    print("🚀 Den Engine v22.0 Serving Main Process HTTP Health Server on Render Cloud...")
+    print("🚀 Den Engine v23.0 Serving Main Process HTTP Health Server on Render Cloud...", flush=True)
     start_health_server()

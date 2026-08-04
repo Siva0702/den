@@ -3,7 +3,7 @@ services:
     name: den-quant-scanner
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python models/auto_scanner.py
+    startCommand: python -u models/auto_scanner.py
     plan: free
     healthCheckPath: /
     envVars:
@@ -13,3 +13,5 @@ services:
         sync: false
       - key: PYTHON_VERSION
         value: 3.10.12
+      - key: PYTHONUNBUFFERED
+        value: "1"
