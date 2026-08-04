@@ -266,8 +266,8 @@ def run_continuous_quant_hunter():
                 current_price = format_price_raw(float(df_15m.iloc[-1]['close']))
                 structure_flipped = df_15m.iloc[-1]['close'] < df_15m.iloc[-10]['low'] if len(df_15m) > 10 else False
 
-                # Check existing positions against live price
-                monitor.check_active_positions(ticker, current_price, 1.0, structure_flipped)
+                # Check existing positions against live price with dynamic invalidation scoring
+                monitor.check_active_positions(ticker, current_price, reg_multiplier, structure_flipped, df_15m)
 
                 # ---- CONFLUENCE ENGINE v38.0 — 0-to-100 Dynamic Scoring ----
                 signal = SureShotConfluenceEngine.evaluate_setup(

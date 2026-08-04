@@ -92,7 +92,75 @@ class ActivePositionMonitor:
             "leverage": leverage
         }
 
-    def check_active_positions(self, ticker: str, current_price: float, sentiment_multiplier: float, structure_flipped: bool):
+    def calculate_invalidation_score(self, pos: dict, current_price: float, structure_flipped: bool, df_15m=None) -> dict:
+        """Calculates dynamic Early Exit / Invalidation Score (0% to 100%) across multiple factors."""
+        direction = pos.get("direction", "LONG")
+        entry = pos.get("entry_price", current_price)
+        sl = pos.get("stop_loss", current_price)
+        margin = pos.get("margin", 50.0)
+        leverage = pos.get("leverage", 15)
+        notional = margin * leverage
+
+        score = 0
+        factors = []
+
+        # 1. Market Structure Break (+40%)
+        if structure_flipped:
+            score += 40
+            factors.append("15m Swing Structure Break (CHoCH / BOS Flipped) [+40%]")
+
+        # 2. Price Position Relative to Entry vs SL (+20%)
+        sl_distance = abs(entry - sl)
+        if sl_distance > 0:
+            adverse_dist = abs(entry - current_price) if ((direction == "LONG" and current_price < entry) or (direction == "SHORT" and current_price > entry)) else 0
+            adverse_pct = adverse_dist / sl_distance
+            if adverse_pct >= 0.5:
+                score += 20
+                factors.append(f"Adverse Drawdown ({adverse_pct*100:.0f}% of SL distance crossed) [+20%]")
+
+        if df_15m is not None and len(df_15m) >= 20:
+            closes = df_15m['close']
+            volumes = df_15m['volume']
+
+            # 3. EMA Momentum Counter-Crossover (+20%)
+            ema9 = closes.ewm(span=9, adjust=False).mean()
+            ema21 = closes.ewm(span=21, adjust=False).mean()
+            if direction == "LONG" and ema9.iloc[-1] < ema21.iloc[-1]:
+                score += 20
+                factors.append("15m EMA Momentum Bearish Cross [+20%]")
+            elif direction == "SHORT" and ema9.iloc[-1] > ema21.iloc[-1]:
+                score += 20
+                factors.append("15m EMA Momentum Bullish Cross [+20%]")
+
+            # 4. Adverse Volume Spike (+20%)
+            vol_sma = volumes.iloc[-20:].mean()
+            curr_vol = volumes.iloc[-1]
+            if curr_vol > vol_sma * 1.5:
+                score += 20
+                factors.append(f"Adverse Volume Surge ({curr_vol/max(vol_sma, 0.01):.1f}x 20-bar avg) [+20%]")
+
+        score = min(score, 100)
+
+        # Calculate Saved Dollars vs Full SL
+        full_sl_loss = abs(notional * (abs(entry - sl) / max(entry, 0.0001)))
+        current_loss = abs(notional * (abs(entry - current_price) / max(entry, 0.0001)))
+        saved_usd = max(round(full_sl_loss - current_loss, 2), 0.0)
+
+        if score >= 75:
+            urgency = "🚨 URGENT INVALIDATION (75%+ Conviction)"
+        elif score >= 50:
+            urgency = "⚠️ MODERATE INVALIDATION (50%+ Conviction)"
+        else:
+            urgency = "ℹ️ MINOR FRICTION (<50% Conviction)"
+
+        return {
+            "invalidation_score": score,
+            "urgency_label": urgency,
+            "factors": factors,
+            "saved_usd": saved_usd
+        }
+
+    def check_active_positions(self, ticker: str, current_price: float, sentiment_multiplier: float, structure_flipped: bool, df_15m=None):
         positions = self.load_positions()
         if not positions:
             return
@@ -180,7 +248,6 @@ class ActivePositionMonitor:
 📊 **ENGINE ACCURACY**
 • Win Rate: `{eff['realized_win_rate']}%` ({eff['total_wins']}W / {eff['total_losses']}L)
 • Net PnL: `${eff['total_engine_pnl_usd']:,.2f} USDT`
-• Profit Factor: `{eff['profit_factor']}`
 
 🧠 **Self-Learning:** Engine will penalize similar setups on {ticker}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -193,17 +260,29 @@ class ActivePositionMonitor:
                 alert_key = f"{ticker}_EARLY_EXIT_{int(pos.get('epoch_time', 0))}"
                 if alert_key not in self.notified_milestones:
                     pnl_data = self._calculate_real_pnl(pos, current_price)
+                    inv_meta = self.calculate_invalidation_score(pos, current_price, structure_flipped, df_15m)
+                    
+                    inv_score = inv_meta["invalidation_score"]
+                    urgency = inv_meta["urgency_label"]
+                    saved_usd = inv_meta["saved_usd"]
+                    factors_text = "\n".join([f"• {f}" for f in inv_meta["factors"]])
+                    
                     dir_dot = "🟢" if direction == "LONG" else "🔴"
+
                     msg = f"""
-⚠️ **EARLY EXIT ALERT: {ticker} STRUCTURE INVALIDATED!** {dir_dot}
+🚨 **EARLY EXIT COMMAND: {ticker} INVALIDATION SCORE {inv_score}%** {dir_dot}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 **URGENCY:** `{urgency}`
 📍 **Entry:** `{self._format_price(entry)}`
 ⚡ **Current Price:** `{self._format_price(current_price)}`
 🛡️ **Original SL:** `{self._format_price(sl)}` | **TP:** `{self._format_price(tp)}`
 📉 **Unrealized PnL:** `${pnl_data['pnl_usd']:,.2f} USDT` ({pnl_data['roi_pct']}% ROI)
+💵 **Capital Saved vs SL:** `+${saved_usd:,.2f} USDT`
 
-🚨 **REASON:** 15m Market Structure Flipped against {direction} position. 
-💡 _Recommendation: Consider closing trade manually early to minimize loss before SL is hit!_
+📋 **INVALIDATION DIMENSIONS ({inv_score}% Conviction):**
+{factors_text}
+
+⚡ **ACTION:** CLOSE POSITION NOW AT MARKET to preserve capital & prevent full SL loss!
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                     """
                     self.send_telegram_alert(msg)
