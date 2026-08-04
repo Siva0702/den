@@ -189,6 +189,27 @@ class ActivePositionMonitor:
                     self.notified_milestones[alert_key] = True
                 modified = True
 
+            elif structure_flipped and not (tp_hit or sl_hit):
+                alert_key = f"{ticker}_EARLY_EXIT_{int(pos.get('epoch_time', 0))}"
+                if alert_key not in self.notified_milestones:
+                    pnl_data = self._calculate_real_pnl(pos, current_price)
+                    dir_dot = "🟢" if direction == "LONG" else "🔴"
+                    msg = f"""
+⚠️ **EARLY EXIT ALERT: {ticker} STRUCTURE INVALIDATED!** {dir_dot}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📍 **Entry:** `{self._format_price(entry)}`
+⚡ **Current Price:** `{self._format_price(current_price)}`
+🛡️ **Original SL:** `{self._format_price(sl)}` | **TP:** `{self._format_price(tp)}`
+📉 **Unrealized PnL:** `${pnl_data['pnl_usd']:,.2f} USDT` ({pnl_data['roi_pct']}% ROI)
+
+🚨 **REASON:** 15m Market Structure Flipped against {direction} position. 
+💡 _Recommendation: Consider closing trade manually early to minimize loss before SL is hit!_
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                    """
+                    self.send_telegram_alert(msg)
+                    self.notified_milestones[alert_key] = True
+                remaining_positions.append(pos)
+
             else:
                 remaining_positions.append(pos)
 
