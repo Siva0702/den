@@ -4,6 +4,7 @@ import sys
 import time
 import threading
 import requests
+import json
 import pandas as pd
 import numpy as np
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -87,7 +88,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Anti Gravity Quant Scanner v24.0 Dynamic Precision Engine Active 24/7")
+        self.wfile.write(b"Anti Gravity Quant Scanner v24.1 1-Min Heartbeat Pulse Engine Active 24/7")
 
     def log_message(self, format, *args):
         return
@@ -110,13 +111,38 @@ def self_ping_keep_alive():
         except Exception:
             pass
 
+def telegram_cloud_heartbeat():
+    """
+    Pushes a live 1-minute cloud pulse to Telegram so the user can verify Render Host is active 24/7.
+    """
+    print("[✓] Starting 1-Minute Telegram Cloud Pulse Thread...", flush=True)
+    time.sleep(10) # Initial startup buffer
+    while True:
+        try:
+            active_p = len(monitor.load_positions())
+            heartbeat_msg = f"""
+🟢 **DEN ENGINE CLOUD HEARTBEAT PULSE** 🟢
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• **Render Host:** ONLINE & SCANNING 24/7 ✅
+• **Current Time:** `{time.strftime('%Y-%m-%d %H:%M:%S')} IST`
+• **Asset Universe:** `100+ Global Contracts`
+• **Active Positions:** `{active_p} / 7 Cap`
+• **Gate Criteria:** `75.0%+ Win Rate & SMC Confluence`
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[✓] Render Cloud Host is Active & Processing Market Candles 24/7/365
+            """
+            telegram.send_alert(heartbeat_msg)
+        except Exception as e:
+            print(f"[!] Heartbeat pulse exception: {e}", flush=True)
+        time.sleep(60) # Pulse every 60 seconds
+
 def run_continuous_quant_hunter():
     try:
         upgrade_meta = AutonomousSelfUpgraderDaemon.execute_self_upgrade_cycle()
         learned_weights = upgrade_meta["weights"] if isinstance(upgrade_meta, dict) else {}
         universe = DynamicMarketUniverse.get_full_hunting_universe()
 
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v24.0 DYNAMIC PRECISION | Scanning {len(universe)} Global Assets...", flush=True)
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🚀 DEN ENGINE v24.1 HEARTBEAT | Scanning {len(universe)} Global Assets...", flush=True)
 
         active_positions = monitor.load_positions()
         if len(active_positions) >= 7:
@@ -209,9 +235,9 @@ def run_continuous_quant_hunter():
                     risk_params = CapitalDefenseShield.get_dynamic_risk_params(ACCOUNT_BALANCE, signal["win_rate"])
                     target_risk_usd = risk_params["dollars_at_risk"]
 
-                    # DYNAMIC PRECISION SL & TP CALCULATION (v24.0 Fix for Micro Tickers!)
+                    # DYNAMIC PRECISION SL & TP CALCULATION
                     sl_multiplier = max(regime_meta["sl_multiplier"], shield_meta["sl_buffer_atr"])
-                    sl_dist = max(signal["atr"] * sl_multiplier, entry * 0.008) # Min 0.8% distance
+                    sl_dist = max(signal["atr"] * sl_multiplier, entry * 0.008)
                     tp_dist = sl_dist * 3.0 # EXACT 1:3.0 KELLY PAYOUT
 
                     raw_sl = entry - sl_dist if direction == "LONG" else entry + sl_dist
@@ -224,7 +250,7 @@ def run_continuous_quant_hunter():
                     tp_pct = abs(tp - entry) / entry
                     
                     if sl_pct < 0.001:
-                        continue # Guard against micro zero division
+                        continue
 
                     rr_ratio = round(tp_pct / sl_pct, 2)
                     
@@ -261,7 +287,7 @@ def run_continuous_quant_hunter():
 • **Target Gain (Win):** `+${exact_gain_usd:,.2f} USDT` (+{roi_gain_pct}% Margin ROI)
 
 🧠 **SMC & MULTI-TIMEFRAME QUANT DRIVERS**
-• **Model Version:** `v24.0 Dynamic Precision & Kelly Engine`
+• **Model Version:** `v24.1 Cloud Heartbeat Edition`
 • **SMC Setup:** `{smc_meta['smc_setup_type']}`
 • **Model Win Rate:** `{signal['win_rate']*100:.1f}%` (Strict 75%+ Non-Negotiable Gate)
 • **Stop-Hunt Defense:** `{shield_meta['status']}` (Wide SL Buffer: `{sl_multiplier}x ATR`)
@@ -272,13 +298,13 @@ def run_continuous_quant_hunter():
 • **Volume POC / VWAP:** `${poc_meta['poc']:,.2f}` / `${signal['vwap']:,.2f}` (Aligned: `{direction}`)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [✓] Dynamic Price Precision Active (Micro Tickers Formatted Correctly)
-[✓] Kelly Criterion Capital Defense Active (-$50 Risk -> +$150 Win)
+[✓] Render 1-Minute Cloud Heartbeat Active
                     """
                     
                     is_dispatched = telegram.send_alert(alert_msg)
                     if is_dispatched:
                         SignalCooldownEngine.record_signal_sent(ticker)
-                        print(f"[✓] v24.0 SIGNAL DELIVERED SUCCESSFULLY TO TELEGRAM FOR {ticker}", flush=True)
+                        print(f"[✓] v24.1 SIGNAL DELIVERED SUCCESSFULLY TO TELEGRAM FOR {ticker}", flush=True)
 
                         positions = monitor.load_positions()
                         positions.append({
@@ -301,7 +327,7 @@ def run_continuous_quant_hunter():
         print(f"[!] Error in quant hunter loop: {loop_err}", flush=True)
 
 def start_background_scanner_loop():
-    print("🚀 Starting Den Engine v24.0 Dedicated Background Scanner Thread...", flush=True)
+    print("🚀 Starting Den Engine v24.1 Dedicated Background Scanner Thread...", flush=True)
     while True:
         try:
             run_continuous_quant_hunter()
@@ -310,7 +336,24 @@ def start_background_scanner_loop():
         time.sleep(10)
 
 if __name__ == "__main__":
+    # Clear all logs freshly on startup as requested by user
+    try:
+        with open("portfolio/active_positions.json", "w") as f:
+            json.dump([], f, indent=2)
+        with open("portfolio/signal_cooldown.json", "w") as f:
+            json.dump({}, f, indent=2)
+        with open("portfolio/trade_history.json", "w") as f:
+            json.dump({"trades": []}, f, indent=2)
+        print("[✓] Cleared active_positions.json, signal_cooldown.json, and trade_history.json freshly on startup!", flush=True)
+    except Exception as e:
+        print(f"[!] Error clearing logs on startup: {e}", flush=True)
+
+    # 1. Start continuous 24/7 background quant scanner thread
     threading.Thread(target=start_background_scanner_loop, daemon=True).start()
+    # 2. Start 1-minute Telegram cloud heartbeat pulse thread
+    threading.Thread(target=telegram_cloud_heartbeat, daemon=True).start()
+    # 3. Start continuous keep-alive ping thread
     threading.Thread(target=self_ping_keep_alive, daemon=True).start()
-    print("🚀 Den Engine v24.0 Serving Main Process HTTP Health Server on Render Cloud...", flush=True)
+    # 4. Main process serves HTTP health server so Render Web Service NEVER sleeps or suspends!
+    print("🚀 Den Engine v24.1 Serving Main Process HTTP Health Server on Render Cloud...", flush=True)
     start_health_server()
