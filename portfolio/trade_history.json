@@ -1,0 +1,63 @@
+{
+  "trades": [
+    {
+      "id": 1,
+      "timestamp": "2026-08-04 15:44:13",
+      "ticker": "NVDA/USDT",
+      "direction": "LONG",
+      "entry_price": 208.8,
+      "stop_loss": 208.22,
+      "take_profit": 210.2,
+      "model_win_rate": 85.0,
+      "expected_value": 2.4,
+      "user_taken": false,
+      "status": "OPEN",
+      "exit_price": null,
+      "pnl_usd": 0.0
+    },
+    {
+      "id": 2,
+      "timestamp": "2026-08-04 15:44:15",
+      "ticker": "SMCI/USDT",
+      "direction": "LONG",
+      "entry_price": 29.51,
+      "stop_loss": 29.27,
+      "take_profit": 30.19,
+      "model_win_rate": 85.0,
+      "expected_value": 2.4,
+      "user_taken": false,
+      "status": "OPEN",
+      "exit_price": null,
+      "pnl_usd": 0.0
+    },
+    {
+      "id": 3,
+      "timestamp": "2026-08-04 15:44:16",
+      "ticker": "INTC/USDT",
+      "direction": "LONG",
+      "entry_price": 94.88,
+      "stop_loss": 94.04,
+      "take_profit": 96.89,
+      "model_win_rate": 85.0,
+      "expected_value": 2.4,
+      "user_taken": false,
+      "status": "OPEN",
+      "exit_price": null,
+      "pnl_usd": 0.0
+    }
+  ],
+  "engine_signals": {
+    "total": 3,
+    "wins": 0,
+    "losses": 0,
+    "win_rate_pct": 0.0,
+    "pnl_usd": 0.0
+  },
+  "user_taken_trades": {
+    "total": 0,
+    "wins": 0,
+    "losses": 0,
+    "win_rate_pct": 0.0,
+    "pnl_usd": 0.0
+  }
+}
