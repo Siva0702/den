@@ -315,8 +315,7 @@ def run_continuous_quant_hunter():
         print(f"[!] Error in quant hunter loop: {loop_err}", flush=True)
 
 def start_background_scanner_loop():
-    print("🚀 Starting Den Engine v29.0 Dedicated Background Scanner Loop...", flush=True)
-    telegram.send_alert("🚀 **DEN ENGINE v29.0 RENDER CLOUD ONLINE!** 🚀\n\nScanning 100+ Global Assets Continuously 24/7. Signals will arrive here automatically!")
+    print("🚀 Starting Den Engine v34.0 Dedicated Background Scanner Loop...", flush=True)
     while True:
         try:
             run_continuous_quant_hunter()
