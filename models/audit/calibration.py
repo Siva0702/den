@@ -143,7 +143,9 @@ class WinRateCalibrator:
         # Backtest records are down-weighted rather than excluded: they are real price
         # outcomes on real setups, but scored on less information than the live engine
         # sees, so treating them as equivalent would overstate confidence.
-        live = ShadowTradeLedger.load_closed()
+        # Only records resolved under the CURRENT logic version. Mixing versions is
+        # how a 75.7% accuracy and a 30.3% accuracy got averaged into one number.
+        live = ShadowTradeLedger.current_version_records()
         backtest = []
         try:
             from audit.backtester import WalkForwardBacktester

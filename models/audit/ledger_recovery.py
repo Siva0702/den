@@ -42,14 +42,26 @@ class LedgerRecovery:
 
     # ------------------------------------------------------------------
     @classmethod
-    def _klines_from(cls, ticker: str, start_ms: int) -> pd.DataFrame:
-        """15m candles from start_ms to now, across the same providers the feed uses."""
+    def _klines_from(cls, ticker: str, start_ms: int, interval: str = "1m") -> pd.DataFrame:
+        """
+        Candles from start_ms to now. Defaults to 1m.
+
+        On a 15m candle we cannot tell whether the high or the low came first, so the
+        replay had to assume the stop was hit first — biasing every ambiguous trade into
+        a loss. At 1m resolution there are 15 observations inside each 15m candle, so the
+        ORDER of events is directly observable and almost no ambiguity remains. Binance
+        USD-M does not publish sub-minute klines, so 1m is the finest available.
+        """
         sym = cls.TICKER_MAP.get(ticker, ticker.replace("/", "").upper())
+        bybit_iv = {"1m": "1", "5m": "5", "15m": "15"}.get(interval, "1")
         attempts = [
             ("binance", f"https://fapi.binance.com/fapi/v1/klines?symbol={sym}"
-                        f"&interval=15m&startTime={start_ms}&limit={cls.MAX_BARS}"),
+                        f"&interval={interval}&startTime={start_ms}&limit=1000"),
             ("bybit", f"https://api.bybit.com/v5/market/kline?category=linear&symbol={sym}"
-                      f"&interval=15&start={start_ms}&limit=1000"),
+                      f"&interval={bybit_iv}&start={start_ms}&limit=1000"),
+            ("bitget", f"https://api.bitget.com/api/v2/mix/market/candles?symbol={sym}"
+                       f"&granularity={interval}&startTime={start_ms}&limit=1000"
+                       f"&productType=USDT-FUTURES"),
         ]
         for name, url in attempts:
             try:
@@ -65,6 +77,14 @@ class LedgerRecovery:
                         "timestamp": int(k[0]), "open": float(k[1]), "high": float(k[2]),
                         "low": float(k[3]), "close": float(k[4]), "volume": float(k[5])}
                         for k in rows])
+                if name == "bitget":
+                    kl = data.get("data") or []
+                    if not kl:
+                        continue
+                    return pd.DataFrame([{
+                        "timestamp": int(k[0]), "open": float(k[1]), "high": float(k[2]),
+                        "low": float(k[3]), "close": float(k[4]), "volume": float(k[5])}
+                        for k in kl])
                 kl = (data.get("result") or {}).get("list") or []
                 if not kl:
                     continue
@@ -92,7 +112,23 @@ class LedgerRecovery:
 
         mae = mfe = 0.0
         tp_hit = []
-        armed = 0
+
+        # TRAIL SITS ONE RUNG BEHIND THE HIGHEST TARGET REACHED.
+        #   no rung yet -> original stop      (a hit here is a real LOSS)
+        #   TP1 reached -> trail at ENTRY     (a hit here is BREAKEVEN, not a loss)
+        #   TP2 reached -> trail at TP1       (locks +1R)
+        #   TP3 reached -> trail at TP2
+        #   TP4 reached -> close at TP4
+        # Trailing TO the level just touched was wrong: the trail would sit exactly at
+        # current price and trigger on the same candle, which is why every trade died at
+        # TP1 and why 16 "stop-outs" were counted as losses when many were breakeven or
+        # better. A trade that reaches TP1 can no longer lose.
+        def trail_level(n):
+            if n <= 0:
+                return sl
+            if n == 1:
+                return entry               # breakeven
+            return ladder[n - 2]           # one rung behind
 
         for i in range(len(bars)):
             hi = float(bars.iloc[i]["high"])
@@ -105,40 +141,38 @@ class LedgerRecovery:
                 mae = min(mae, (entry - hi) / entry * 100)
                 mfe = max(mfe, (entry - lo) / entry * 100)
 
-            trail_idx = max(tp_hit) if tp_hit else 0
+            n = max(tp_hit) if tp_hit else 0
+            lvl = trail_level(n)
+            stopped = (lo <= lvl) if direction == "LONG" else (hi >= lvl)
 
-            if trail_idx > 0:
-                trail = ladder[trail_idx - 1]
-                if armed == trail_idx:
-                    stopped = (lo <= trail) if direction == "LONG" else (hi >= trail)
-                    if stopped or trail_idx >= len(ladder):
-                        return cls._out(rec, f"TP{trail_idx}_HIT", trail, True, mae, mfe, tp_hit, i + 1)
-                else:
-                    armed = trail_idx
-            else:
-                stopped = (lo <= sl) if direction == "LONG" else (hi >= sl)
-                if stopped:
-                    # Did it later reach target anyway? Label it, but it is still a loss.
+            if stopped:
+                if n == 0:
                     for k in range(i + 1, len(bars)):
                         tgt = ladder[0]
                         if ((direction == "LONG" and float(bars.iloc[k]["high"]) >= tgt) or
                                 (direction == "SHORT" and float(bars.iloc[k]["low"]) <= tgt)):
                             return cls._out(rec, "SL_THEN_TP", sl, False, mae, mfe, tp_hit, i + 1)
                     return cls._out(rec, "SL_HIT", sl, False, mae, mfe, tp_hit, i + 1)
+                if n == 1:
+                    # Reached target, trailed back to entry. No loss, no profit.
+                    return cls._out(rec, "BREAKEVEN", entry, None, mae, mfe, tp_hit, i + 1)
+                return cls._out(rec, f"TP{n - 1}_LOCKED", lvl, True, mae, mfe, tp_hit, i + 1)
 
             reached = ([j + 1 for j, tp in enumerate(ladder) if hi >= tp] if direction == "LONG"
                        else [j + 1 for j, tp in enumerate(ladder) if lo <= tp])
             for r in reached:
                 if r not in tp_hit:
                     tp_hit.append(r)
+            if tp_hit and max(tp_hit) >= len(ladder):
+                return cls._out(rec, "TP4_HIT", ladder[-1], True, mae, mfe, tp_hit, i + 1)
 
-        # Still running at the end of available history.
-        trail_idx = max(tp_hit) if tp_hit else 0
-        if trail_idx > 0:
-            return cls._out(rec, f"TP{trail_idx}_OPEN", ladder[trail_idx - 1], True,
-                            mae, mfe, tp_hit, len(bars), still_running=True)
+        n = max(tp_hit) if tp_hit else 0
+        if n >= 2:
+            return cls._out(rec, f"TP{n-1}_RUNNING", trail_level(n), True, mae, mfe, tp_hit, len(bars), True)
+        if n == 1:
+            return cls._out(rec, "BREAKEVEN_RUNNING", entry, None, mae, mfe, tp_hit, len(bars), True)
         return cls._out(rec, "STILL_OPEN", float(bars.iloc[-1]["close"]), False,
-                        mae, mfe, tp_hit, len(bars), still_running=True)
+                        mae, mfe, tp_hit, len(bars), True)
 
     @staticmethod
     def _out(rec, outcome, exit_px, is_win, mae, mfe, tp_hit, bars_held, still_running=False):
@@ -150,7 +184,8 @@ class LedgerRecovery:
             "pre_recovery_outcome": rec.get("outcome"),
             "pre_recovery_pnl_pct": rec.get("pnl_pct"),
             "outcome": outcome,
-            "is_win": bool(is_win),
+            "is_win": (None if is_win is None else bool(is_win)),
+            "is_breakeven": is_win is None,
             "exit_price": exit_px,
             "pnl_pct": round(pnl, 4),
             "mae_pct": round(mae, 4),
@@ -158,8 +193,10 @@ class LedgerRecovery:
             "tp_levels_hit": tp_hit,
             "max_rung_reached_before_stop": max(tp_hit or [0]),
             "bars_held": bars_held,
-            "hold_hours": round(bars_held * 0.25, 2),
+            "hold_hours": round(bars_held / 60.0, 2),
+            "resolution": "1m",
             "recovered": True,
+            "logic_version": ShadowTradeLedger.LOGIC_VERSION,
             "still_running": still_running,
         })
         out["post_mortem"] = ShadowTradeLedger.post_mortem(out)
@@ -173,6 +210,17 @@ class LedgerRecovery:
             return None
         bars = cls._klines_from(rec["ticker"], int(opened * 1000))
         if bars is None or bars.empty:
+            return None
+        # DROP THE ENTRY CANDLE. startTime returns the candle CONTAINING the open, whose
+        # high/low include movement from before the trade existed — so a stop 0.7% away
+        # was being triggered by a 5.8% range that had already happened. We cannot know
+        # where inside that candle the entry landed, so the only honest choice is to
+        # begin at the next candle and forgo any outcome the entry bar might have
+        # produced. 8 of 16 recovered stop-outs were this artefact.
+        # At 1m resolution the entry minute is a far smaller blind spot than a whole
+        # 15m candle, but it is still ambiguous, so it is dropped.
+        bars = bars.iloc[1:].reset_index(drop=True)
+        if bars.empty:
             return None
         return cls._replay(rec, bars)
 

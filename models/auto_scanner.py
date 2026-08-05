@@ -271,8 +271,11 @@ def build_ledger_report() -> str:
 
     eq = ShadowTradeLedger.equity_curve(ACCOUNT_BALANCE)
     da = ShadowTradeLedger.directional_accuracy()
+    vr = ShadowTradeLedger.version_report()
     return f"""📒 **SHADOW LEDGER — FULL REPORT**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📌 **LEDGER `{vr['current_version']}`** — `{vr['current_only']}` current, `{vr['stale_records']}` stale \
+{'✅ calibration-safe' if vr['calibration_safe'] else '⚠️ replay pending'}
 🎯 **TRADEABLE ACCURACY `{s['accuracy_pct']}%`** — `{s['wins']}W / {s['losses']}L` of `{s['total']}` resolved
 👁️ Open `{s['open']}` | tracking now
 
@@ -1052,6 +1055,22 @@ def start_background_scanner_loop():
     # as enough of them exist.
     # Audit the restored ledger BEFORE anything reads it. A corrupted pull would
     # otherwise poison calibration for the whole session.
+    # VERSION SELF-HEAL. If resolution logic changed since these records were written,
+    # replay them against real candles under the current logic before anything reads
+    # them. Without this a logic change silently leaves two incompatible measurements
+    # averaged together — which is exactly how 75.7% and 30.3% became one number.
+    try:
+        vr = ShadowTradeLedger.version_report()
+        if vr["needs_replay"]:
+            print(f"[ledger] {vr['stale_records']} records on an older logic version "
+                  f"(current {vr['current_version']}) — replaying...", flush=True)
+            from audit.ledger_recovery import LedgerRecovery
+            res = LedgerRecovery.run()
+            print(f"[ledger] replayed {res['recovered']}, "
+                  f"{len(res.get('outcome_changes') or {})} outcome types changed, "
+                  f"accuracy now {res['new_accuracy_pct']}%", flush=True)
+    except Exception as e:
+        print(f"[ledger] version replay failed: {e}", flush=True)
     try:
         boot_audit = ShadowTradeLedger.audit_integrity(repair=True)
         print(f"[ledger] boot audit: {boot_audit['unique_trades']} unique of "

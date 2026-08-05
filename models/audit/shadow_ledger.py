@@ -54,6 +54,21 @@ class ShadowTradeLedger:
     # the same level recurring is a separate opportunity and must be kept.
     DEDUP_WINDOW_SECONDS = 4 * 3600
 
+    # LEDGER LOGIC VERSION.
+    # Every resolved record is stamped with the version of the resolution logic that
+    # produced it. Today proved why this is not optional: records resolved under the
+    # truncating trail said 75.7% accuracy, records resolved under the corrected trail
+    # said 30.3%, and both sat in the same file being averaged into one meaningless
+    # number. Calibration must never mix logic versions — a win under v1 and a win under
+    # v3 are not the same measurement.
+    #
+    # Bump this whenever resolution semantics change. Records on an older version are
+    # quarantined out of calibration and queued for replay against real candles.
+    #   v1  resolve at final ladder rung
+    #   v2  resolve at TP1 (planned exit), trail sits ON the rung just hit
+    #   v3  trail sits ONE RUNG BEHIND; TP1 -> breakeven, TP2 -> TP1; BREAKEVEN is neutral
+    LOGIC_VERSION = "v3-trail-one-behind"
+
     _lock = threading.Lock()
     _last_open_candle = {}      # "TICKER|DIR" -> candle timestamp of last open
 
@@ -442,6 +457,7 @@ class ShadowTradeLedger:
             # RESULT is the exit level above; these rungs never change it.
             "max_rung_reached_before_stop": max(trade.get("tp_levels_hit") or [0]),
         })
+        trade["logic_version"] = cls.LOGIC_VERSION
         trade["post_mortem"] = cls.post_mortem(trade)
         return trade
 
@@ -656,6 +672,45 @@ class ShadowTradeLedger:
                 if n_setups >= 5 and setups_correct / max(n_setups, 1) > 0.6 else
                 "not enough missed setups to separate model quality from execution"),
         }
+
+    @classmethod
+    def version_report(cls) -> dict:
+        """
+        Which logic version resolved each record, and how much of the ledger is stale.
+        Calibration consumes `current_only`; everything else is quarantined until it is
+        replayed, so an obsolete measurement can never silently inflate a win rate.
+        """
+        closed = cls.load_closed()
+        by_ver = {}
+        for t in closed:
+            v = t.get("logic_version", "v1-legacy")
+            slot = by_ver.setdefault(v, {"n": 0, "wins": 0, "losses": 0, "breakeven": 0})
+            slot["n"] += 1
+            if t.get("is_breakeven"):
+                slot["breakeven"] += 1
+            elif t.get("is_win") is True:
+                slot["wins"] += 1
+            else:
+                slot["losses"] += 1
+        for v, slot in by_ver.items():
+            decided = slot["wins"] + slot["losses"]
+            slot["accuracy_pct"] = round(slot["wins"] / decided * 100, 1) if decided else 0.0
+            slot["current"] = (v == cls.LOGIC_VERSION)
+        current = by_ver.get(cls.LOGIC_VERSION, {"n": 0})
+        stale = sum(s["n"] for v, s in by_ver.items() if v != cls.LOGIC_VERSION)
+        return {
+            "current_version": cls.LOGIC_VERSION,
+            "by_version": by_ver,
+            "current_only": current["n"],
+            "stale_records": stale,
+            "needs_replay": stale > 0,
+            "calibration_safe": stale == 0,
+        }
+
+    @classmethod
+    def current_version_records(cls) -> list:
+        """Only records resolved under the CURRENT logic. This is what calibration sees."""
+        return [t for t in cls.load_closed() if t.get("logic_version") == cls.LOGIC_VERSION]
 
     @classmethod
     def audit_integrity(cls, repair: bool = False) -> dict:
