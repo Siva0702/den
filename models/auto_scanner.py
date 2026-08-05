@@ -171,12 +171,27 @@ def kelly_position_size(win_rate: float, reward_risk_ratio: float,
     # matter what the calibrated win rate said, which meant the measured edge changed
     # position size by exactly nothing. Map win rate onto the risk band so the setups
     # the data actually likes get paid more, with the same worst case.
+    # KELLY'S VETO IS ABSOLUTE.
+    # Raw Kelly goes NEGATIVE below the break-even win rate — at 21.4% with 1.5 R:R it
+    # is -0.310, meaning "this bet loses money, do not take it". The RISK_FLOOR_USD I
+    # added for conviction scaling was overriding that and still risking $12, which
+    # defeats the one function Kelly exists to perform. A negative edge now returns zero
+    # size and the caller must skip the trade entirely.
+    raw_kelly = (p * b - q) / b if b > 0 else -1.0
+    if raw_kelly <= 0:
+        return {"kelly_full": round(raw_kelly, 4), "kelly_half": 0.0,
+                "dollars_at_risk": 0.0, "risk_pct": 0.0,
+                "veto": True,
+                "veto_reason": f"negative edge: WR {p*100:.1f}% at {b:.2f} R:R needs "
+                               f"{100/(1+b):.1f}% to break even"}
+
     conviction = max(0.0, min((p - 0.45) / 0.35, 1.0))          # 45% -> 0, 80% -> 1
     target = RISK_FLOOR_USD + conviction * (RISK_CEIL_USD - RISK_FLOOR_USD)
     dollars = round(min(dollars, target) if dollars > 0 else target, 2)
     dollars = max(RISK_FLOOR_USD, min(dollars, RISK_CEIL_USD))
     return {"kelly_full": round(kelly, 4), "kelly_half": round(half, 4),
-            "dollars_at_risk": dollars, "risk_pct": round(risk_fraction * 100, 2)}
+            "dollars_at_risk": dollars, "risk_pct": round(risk_fraction * 100, 2),
+            "veto": False}
 
 
 # ============================================================
@@ -272,7 +287,9 @@ def build_ledger_report() -> str:
 
     eq = ShadowTradeLedger.equity_curve(ACCOUNT_BALANCE)
     da = ShadowTradeLedger.directional_accuracy()
+    kv = ShadowTradeLedger.kelly_veto_report()
     vr = ShadowTradeLedger.version_report()
+    kv = ShadowTradeLedger.kelly_veto_report()
     exits = " · ".join(f"`{k} {v}`" for k, v in [
         ("SL_HIT", s['sl_hit']), ("SL_THEN_TP", s['sl_then_tp']),
         ("BREAKEVEN", s.get('breakeven', 0)), ("TP1", s['tp1']),
@@ -289,6 +306,9 @@ def build_ledger_report() -> str:
 **Capital** `${eq['starting_capital']:,.0f}` → `${eq['final_equity']:,.2f}`  (`{eq['return_pct']:+.1f}%`)  ·  Max DD `{eq['max_drawdown_pct']:.1f}%`
 
 {exits}{stop_line}
+
+⚖️ **KELLY VETO TEST** — `{kv['vetoed_resolved']}` refused setups resolved\
+{f" │ `{kv['wins']}`W/`{kv['losses']}`L │ `{kv['total_R']:+.2f}R` │ _{kv['verdict']}_" if kv.get('available') else " │ _none yet_"}
 
 🧭 **DIRECTIONAL** — missed `{da['missed_setups']}` │ right `{da['missed_correct']}` │ wrong `{da['missed_wrong']}` │ `{da['missed_directional_pct'] if da['missed_directional_pct'] is not None else '—'}%`
 _{da['interpretation']}_
@@ -707,6 +727,9 @@ def run_continuous_quant_hunter():
             # Cap the REQUEST as well as the exchange limit. A 0.4% stop asks for 100x,
             # and while the venue cap trims it, requesting absurd leverage means the
             # binding constraint is the exchange rather than our own risk view.
+            # Kelly vetoed this bet: it is barred from DISPATCH, but still tracked as a
+            # shadow trade so the veto itself can be proven right or wrong from outcomes.
+            kelly_vetoed = bool(kelly.get("veto"))
             raw_lev = max(min(int(round(1.0 / max(sl_pct * 2.5, 0.01))), 40), 5)
             lev_meta = ExchangeLeverageEngine.get_calibrated_leverage(ticker, raw_lev, sl_pct=sl_pct)
             leverage = lev_meta["recommended_leverage"]
@@ -741,6 +764,7 @@ def run_continuous_quant_hunter():
                 "chosen_leverage": leverage, "rsi": signal.get("rsi", 0), "atr": atr_val,
                 "live_price": float(price_map[ticker]["close"]),
                 "candle_ts": int(f["df_15m"].iloc[-1].get("timestamp", 0) or 0),
+                "kelly_vetoed": kelly_vetoed, "kelly_full": kelly.get("kelly_full"),
                 "session": session_name, "derivatives": derivatives, "news": news,
                 "calendar": calendar, "event_vol": event_vol, "df_5m": f.get("df_5m"),
                 "feature_snapshot": features,
@@ -858,6 +882,12 @@ def run_continuous_quant_hunter():
             timing_ok, timing_msg = entry_timing_ok(best.get("df_5m"), best["direction"])
             if not timing_ok:
                 print(f"[gate] {best['ticker']} held — {timing_msg}", flush=True)
+                continue
+
+            # Gate 5b: Kelly veto — never fund a negative edge.
+            if best.get("kelly_vetoed"):
+                print(f"[gate] {best['ticker']} vetoed by Kelly "
+                      f"(edge {best.get('kelly_full')}) — tracked as shadow only", flush=True)
                 continue
 
             # Gate 6: correlation. Three correlated longs in one scan is one bet at

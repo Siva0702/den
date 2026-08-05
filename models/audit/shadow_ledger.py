@@ -230,6 +230,10 @@ class ShadowTradeLedger:
             }
             record["candle_ts"] = candle_ts
             record["config_version"] = cls.LOGIC_VERSION
+            # Tag setups Kelly refused to fund. They cost nothing to track and are the
+            # only way to test whether the veto is actually correct.
+            record["kelly_vetoed"] = bool(candidate.get("kelly_vetoed"))
+            record["kelly_full"] = candidate.get("kelly_full")
             open_trades.append(record)
             if candle_ts is not None:
                 cls._last_open_candle[key] = candle_ts
@@ -793,6 +797,44 @@ class ShadowTradeLedger:
             print(f"[ledger] purged {len(dupes)} duplicate records "
                   f"({', '.join(report['affected_tickers'][:5])})", flush=True)
         return report
+
+    @classmethod
+    def kelly_veto_report(cls) -> dict:
+        """
+        Was Kelly right to refuse?
+
+        Kelly's veto is a falsifiable claim: below break-even, betting loses money.
+        Vetoed setups are still opened as SHADOW trades (they cost nothing), so their
+        real outcomes accumulate. If vetoed trades turn out to WIN more often than they
+        lose, Kelly is wrong about this engine and the evidence will say so plainly
+        rather than the question staying an opinion.
+        """
+        rows = [t for t in cls.current_version_records() if t.get("kelly_vetoed")]
+        if not rows:
+            return {"available": False, "vetoed_resolved": 0,
+                    "note": "no vetoed setups have resolved yet"}
+        w = sum(1 for t in rows if t.get("is_win") is True)
+        be = sum(1 for t in rows if t.get("is_breakeven"))
+        l = len(rows) - w - be
+        total_R = 0.0
+        for t in rows:
+            e = float(t.get("entry", 0) or 0)
+            sl = float(t.get("stop_loss", 0) or 0)
+            slp = abs(e - sl) / e * 100 if e else 0
+            if slp:
+                total_R += float(t.get("pnl_pct", 0) or 0) / slp
+        acc = w / (w + l) * 100 if (w + l) else 0.0
+        return {
+            "available": True,
+            "vetoed_resolved": len(rows),
+            "wins": w, "breakeven": be, "losses": l,
+            "accuracy_pct": round(acc, 1),
+            "total_R": round(total_R, 2),
+            "avg_R": round(total_R / len(rows), 3),
+            "verdict": ("KELLY WAS RIGHT — vetoed trades lost money" if total_R < -0.5 else
+                        "KELLY WAS WRONG — vetoed trades were profitable" if total_R > 0.5 else
+                        "INCONCLUSIVE — vetoed trades roughly break even"),
+        }
 
     @classmethod
     def stop_diagnosis(cls) -> dict:

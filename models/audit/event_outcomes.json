@@ -1,5 +1,6 @@
 {
-  "tracking": [
+  "tracking": [],
+  "resolved": [
     {
       "event_id": "UBER/USDT|UBER earnings (time-pre-market)|2026-08-05T11:00:00+00:00",
       "ticker": "UBER/USDT",
@@ -13,7 +14,14 @@
         "30": -9.7164,
         "120": -9.7164,
         "360": -9.4745
-      }
+      },
+      "reaction_30m": -9.7164,
+      "reaction_2h": -9.7164,
+      "reaction_6h": -9.4745,
+      "initial_direction": "DOWN",
+      "faded": false,
+      "reversed": false,
+      "resolved_at": "2026-08-05T17:32:40.146577+00:00"
     },
     {
       "event_id": "DIS/USDT|DIS earnings (time-pre-market)|2026-08-05T11:00:00+00:00",
@@ -28,8 +36,14 @@
         "30": 0.4625,
         "120": 0.4625,
         "360": 0.9249
-      }
+      },
+      "reaction_30m": 0.4625,
+      "reaction_2h": 0.4625,
+      "reaction_6h": 0.9249,
+      "initial_direction": "UP",
+      "faded": false,
+      "reversed": false,
+      "resolved_at": "2026-08-05T17:32:40.146606+00:00"
     }
-  ],
-  "resolved": []
+  ]
 }
