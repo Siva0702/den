@@ -7,6 +7,8 @@ import time
 
 sys.path.append(os.path.dirname(__file__))
 from audit.engine_efficiency import EngineEfficiencyTracker
+from alerts.signal_cooldown import SignalCooldownEngine
+from indicators.trade_decay import TradeDecayEngine
 
 POSITIONS_FILE = "portfolio/active_positions.json"
 
@@ -92,6 +94,27 @@ class ActivePositionMonitor:
             "leverage": leverage
         }
 
+    @staticmethod
+    def detect_structure_break(df_15m, direction: str, lookback: int = 10) -> bool:
+        """
+        Direction-aware structure break.
+
+        v38 hardcoded `close < low[-10]`, which for a SHORT position fires when the
+        trade is WORKING — it was sending early-exit warnings on winners and staying
+        silent on losers. A break is only a break against the position's direction:
+        a LONG is invalidated by losing the recent swing low, a SHORT by reclaiming
+        the recent swing high.
+        """
+        if df_15m is None or len(df_15m) <= lookback:
+            return False
+        try:
+            close = float(df_15m['close'].iloc[-1])
+            if direction == "LONG":
+                return close < float(df_15m['low'].iloc[-lookback:-1].min())
+            return close > float(df_15m['high'].iloc[-lookback:-1].max())
+        except Exception:
+            return False
+
     def calculate_invalidation_score(self, pos: dict, current_price: float, structure_flipped: bool, df_15m=None) -> dict:
         """Calculates dynamic Early Exit / Invalidation Score (0% to 100%) across multiple factors."""
         direction = pos.get("direction", "LONG")
@@ -132,12 +155,16 @@ class ActivePositionMonitor:
                 score += 20
                 factors.append("15m EMA Momentum Bullish Cross [+20%]")
 
-            # 4. Adverse Volume Spike (+20%)
+            # 4. Adverse Volume Spike (+20%) — only counts if the surge is AGAINST us.
+            # A volume surge in our favour is confirmation, not invalidation.
             vol_sma = volumes.iloc[-20:].mean()
             curr_vol = volumes.iloc[-1]
             if curr_vol > vol_sma * 1.5:
-                score += 20
-                factors.append(f"Adverse Volume Surge ({curr_vol/max(vol_sma, 0.01):.1f}x 20-bar avg) [+20%]")
+                last_bar_up = float(closes.iloc[-1]) > float(df_15m['open'].iloc[-1])
+                adverse = (direction == "LONG" and not last_bar_up) or (direction == "SHORT" and last_bar_up)
+                if adverse:
+                    score += 20
+                    factors.append(f"Adverse Volume Surge ({curr_vol/max(vol_sma, 0.01):.1f}x 20-bar avg) [+20%]")
 
         score = min(score, 100)
 
@@ -159,6 +186,31 @@ class ActivePositionMonitor:
             "factors": factors,
             "saved_usd": saved_usd
         }
+
+    def _send_decay_alert(self, ticker, pos, price, decay):
+        direction = pos.get("direction", "LONG")
+        dot = "\U0001F7E2" if direction == "LONG" else "\U0001F534"
+        factors = "\n".join(f"\u2022 {f}" for f in decay["factors"][:4])
+        urgent = decay["recommendation"] == "CLOSE_NOW"
+        head = (f"\U0001F6A8 **EXIT NOW: {ticker} HAS STOPPED WORKING** {dot}" if urgent
+                else f"\u26A0\uFE0F **{ticker} LOSING MOMENTUM \u2014 CONSIDER SCRATCHING** {dot}")
+        action = ("\U0001F525 **ACTION:** Close at market on Bitunix/Weex now. This trade is not "
+                  "reaching target \u2014 exiting here preserves most of the margin."
+                  if urgent else
+                  "\u26A1 **ACTION:** Move stop to breakeven, or scratch at market.")
+        msg = (f"{head}\n"
+               "\u2501" * 28 + "\n"
+               f"\U0001F4C9 **DECAY SCORE:** `{decay['decay_score']:.0f}/100`\n"
+               f"\U0001F4CD **Entry:** `{self._format_price(pos.get('entry_price', price))}`\n"
+               f"\u26A1 **Now:** `{self._format_price(price)}`\n"
+               f"\U0001F4CA **Progress:** `{decay['progress_r']}R` of `{decay['target_r']}R` target, "
+               f"after `{decay['time_used_pct']:.0f}%` of expected time (`{decay['bars_held']}` bars)\n"
+               f"\U0001F4B5 **Unrealised:** `${decay['unrealised_usd']:,.2f}` | "
+               f"**Saved vs full stop:** `+${decay['capital_saved_vs_stop']:,.2f}`\n\n"
+               f"\U0001F4CB **WHY IT IS DYING:**\n{factors}\n\n"
+               f"_{decay['reason']}_\n{action}\n" + "\u2501" * 28)
+        self.send_telegram_alert(msg)
+        print(f"[decay] {ticker} {decay['recommendation']} score={decay['decay_score']}", flush=True)
 
     def check_active_positions(self, ticker: str, current_price: float, sentiment_multiplier: float, structure_flipped: bool, df_15m=None):
         positions = self.load_positions()
@@ -219,6 +271,8 @@ class ActivePositionMonitor:
                     """
                     self.send_telegram_alert(msg)
                     self.notified_milestones[alert_key] = True
+                    # Clears any loss streak on this ticker.
+                    SignalCooldownEngine.record_outcome(ticker, direction, is_win=True)
                 modified = True
 
             elif sl_hit:
@@ -254,6 +308,9 @@ class ActivePositionMonitor:
                     """
                     self.send_telegram_alert(msg)
                     self.notified_milestones[alert_key] = True
+                    # Locks this direction for 2h; a second consecutive loss locks the
+                    # whole ticker for 6h. The opposite direction stays available.
+                    SignalCooldownEngine.record_outcome(ticker, direction, is_win=False)
                 modified = True
 
             elif structure_flipped and not (tp_hit or sl_hit):
@@ -305,6 +362,15 @@ class ActivePositionMonitor:
                 remaining_positions.append(pos)
 
             else:
+                # Not stopped, not targeted, structure intact — but is it still WORKING?
+                # This is the sideways-decay case: a pumped pair that stalls after the
+                # session ends and bleeds into the stop without ever breaking structure.
+                decay = TradeDecayEngine.analyze(pos, df_15m, current_price)
+                if decay.get("available") and decay["recommendation"] in ("CLOSE_NOW", "TIGHTEN_OR_SCRATCH"):
+                    key = f"{ticker}_DECAY_{decay['recommendation']}_{int(pos.get('epoch_time', 0))}"
+                    if key not in self.notified_milestones:
+                        self._send_decay_alert(ticker, pos, current_price, decay)
+                        self.notified_milestones[key] = True
                 remaining_positions.append(pos)
 
         if modified:

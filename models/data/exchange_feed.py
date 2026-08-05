@@ -22,7 +22,8 @@ class BitunixWeexLiveFeed:
     }
 
     @classmethod
-    def get_exchange_ohlcv(cls, ticker: str, base_price: float = 100.0, interval: str = "15m") -> tuple:
+    def get_exchange_ohlcv(cls, ticker: str, base_price: float = 100.0, interval: str = "15m",
+                           limit: int = 100) -> tuple:
         """Fetch real klines from Binance, Bybit, or Bitget. Returns (DataFrame, is_real)."""
         mapping = cls.TICKER_MAP.get(ticker)
         if mapping:
@@ -38,7 +39,7 @@ class BitunixWeexLiveFeed:
 
         # 1. Try Binance Futures API
         try:
-            url_binance = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval={binance_int}&limit=100"
+            url_binance = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval={binance_int}&limit={limit}"
             resp = requests.get(url_binance, headers=cls.HEADERS, timeout=3)
             if resp.status_code == 200:
                 raw_klines = resp.json()
@@ -59,7 +60,7 @@ class BitunixWeexLiveFeed:
 
         # 2. Try Bybit Linear Futures API (No HTTP 451 US Geo-block)
         try:
-            url_bybit = f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol}&interval={bybit_int}&limit=100"
+            url_bybit = f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol}&interval={bybit_int}&limit={min(limit, 1000)}"
             resp = requests.get(url_bybit, headers=cls.HEADERS, timeout=3)
             if resp.status_code == 200:
                 data = resp.json()
@@ -82,7 +83,7 @@ class BitunixWeexLiveFeed:
 
         # 3. Try Bitget Futures Market API
         try:
-            url_bitget = f"https://api.bitget.com/api/v2/mix/market/candles?symbol={symbol}&granularity={bitget_int}&limit=100&productType=USDT-FUTURES"
+            url_bitget = f"https://api.bitget.com/api/v2/mix/market/candles?symbol={symbol}&granularity={bitget_int}&limit={min(limit, 1000)}&productType=USDT-FUTURES"
             resp = requests.get(url_bitget, headers=cls.HEADERS, timeout=3)
             if resp.status_code == 200:
                 data = resp.json()
