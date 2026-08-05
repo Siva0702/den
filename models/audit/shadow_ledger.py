@@ -5,9 +5,11 @@ import tempfile
 import threading
 import time
 
+MISSED_FILE_NAME = "audit/shadow_missed.json"
 MODELS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHADOW_OPEN_FILE = os.path.join(MODELS_DIR, "audit/shadow_open.json")
 SHADOW_CLOSED_FILE = os.path.join(MODELS_DIR, "audit/shadow_closed.json")
+MISSED_FILE = os.path.join(MODELS_DIR, MISSED_FILE_NAME)
 
 class ShadowTradeLedger:
     """
@@ -50,6 +52,7 @@ class ShadowTradeLedger:
     MAX_CLOSED_RECORDS = 8000
 
     _lock = threading.Lock()
+    _last_open_candle = {}      # "TICKER|DIR" -> candle timestamp of last open
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -125,7 +128,50 @@ class ShadowTradeLedger:
         if not ticker or direction not in ("LONG", "SHORT") or entry <= 0:
             return False
 
+        # CHURN GUARD.
+        # Candle-gated rescoring reuses a cached signal, so `entry` stays frozen at the
+        # candle's close price. If live price has already passed TP1, the trade opens and
+        # resolves TP1_HIT on the very next scan — which clears the open-trade dedup and
+        # lets an identical trade open again 35 seconds later, forever. IBM logged 21
+        # identical TP1_HIT records at entry 224.61 this way, each one inflating the win
+        # count and the equity curve with a single trade counted 21 times.
+        #
+        # Two conditions close the loop:
+        #   1. reject an entry that is ALREADY past its first target or beyond its stop —
+        #      that is not an entry, it is a missed move
+        #   2. require a NEW candle before the same ticker+direction may reopen
+        ladder = candidate.get("tp_ladder") or []
+        sl = float(candidate.get("sl", 0.0) or 0.0)
+        live = candidate.get("live_price")
+        if ladder and live:
+            live = float(live)
+            tp1 = float(ladder[0])
+            already_past = (live >= tp1 if direction == "LONG" else live <= tp1)
+            beyond_stop = (live <= sl if direction == "LONG" else live >= sl)
+            if already_past or beyond_stop:
+                # NOT a discard — this is evidence, just not tradeable evidence.
+                #
+                # "Price already past TP1" means the engine called the direction
+                # correctly and we simply had no entry. That says the SCORING worked and
+                # the EXECUTION did not, which is a completely different diagnosis from
+                # "the score was wrong". Counting it as a win would inflate accuracy with
+                # trades nobody could have taken (IBM: one missed move logged 21 times).
+                # Counting it as nothing throws away the only clean read we have on
+                # whether the model picks direction.
+                #
+                # So it is recorded separately as DIRECTIONAL evidence and kept out of
+                # the tradeable win rate entirely.
+                cls._record_missed(ticker, direction, score, entry, live, tp1, sl,
+                                   "THESIS_CORRECT" if already_past else "THESIS_WRONG",
+                                   candidate)
+                return False
+
+        candle_ts = candidate.get("candle_ts")
+        key = f"{ticker}|{direction}"
+
         with cls._lock:
+            if candle_ts is not None and cls._last_open_candle.get(key) == candle_ts:
+                return False        # already opened on this candle
             open_trades = cls.load_open()
             for t in open_trades:
                 if t.get("ticker") == ticker and t.get("direction") == direction:
@@ -164,7 +210,10 @@ class ShadowTradeLedger:
                 "bars_observed": 0,
                 "last_price": entry,
             }
+            record["candle_ts"] = candle_ts
             open_trades.append(record)
+            if candle_ts is not None:
+                cls._last_open_candle[key] = candle_ts
             cls._atomic_write(SHADOW_OPEN_FILE, open_trades)
         return True
 
@@ -485,6 +534,7 @@ class ShadowTradeLedger:
         the whole diagnostic. Exit-rung counts show whether targets are set sensibly;
         SL vs SL_THEN_TP separates a wrong read from a stop that was merely too tight.
         """
+        cls.audit_integrity(repair=True)
         closed = cls.load_closed()
         open_trades = cls.load_open()
         counts = {"TP1_HIT": 0, "TP2_HIT": 0, "TP3_HIT": 0, "TP4_HIT": 0,
@@ -526,6 +576,110 @@ class ShadowTradeLedger:
             "avg_mfe_pct": round(sum(abs(t.get("mfe_pct", 0)) for t in closed) / total, 3) if total else 0.0,
             "win_rate": round(wins / total * 100, 1) if total else 0.0,
         }
+
+    @classmethod
+    def _record_missed(cls, ticker, direction, score, entry, live, tp1, sl, verdict, candidate):
+        """Log a setup whose entry was unavailable, with the direction it proved out."""
+        try:
+            with cls._lock:
+                rows = cls._load(MISSED_FILE, [])
+                key = (ticker, direction, round(float(entry), 10), verdict)
+                for r in rows:
+                    if (r["ticker"], r["direction"], round(float(r["entry"]), 10),
+                            r["verdict"]) == key:
+                        r["repeat_count"] = r.get("repeat_count", 1) + 1
+                        r["last_seen"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                        cls._atomic_write(MISSED_FILE, rows)
+                        return
+                rows.append({
+                    "ticker": ticker, "direction": direction, "raw_score": score,
+                    "entry": entry, "live_at_detect": live, "tp1": tp1, "stop_loss": sl,
+                    "verdict": verdict, "repeat_count": 1,
+                    "market_regime": candidate.get("market_regime", "UNKNOWN"),
+                    "session": candidate.get("session", "UNKNOWN"),
+                    "first_seen": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "last_seen": time.strftime("%Y-%m-%d %H:%M:%S"),
+                })
+                if len(rows) > 3000:
+                    rows = rows[-3000:]
+                cls._atomic_write(MISSED_FILE, rows)
+        except Exception as e:
+            print(f"[!] missed-signal log failed: {e}")
+
+    @classmethod
+    def directional_accuracy(cls) -> dict:
+        """
+        Was the engine RIGHT about direction, separately from whether we could trade it?
+
+        Tradeable accuracy answers "did my money make money". Directional accuracy
+        answers "does the scoring model actually read the market". If directional is
+        high while tradeable is not, the model works and the ENTRY TIMING is the
+        problem — a far more fixable diagnosis than a broken score.
+        """
+        missed = cls._load(MISSED_FILE, [])
+        correct = sum(r.get("repeat_count", 1) for r in missed if r["verdict"] == "THESIS_CORRECT")
+        wrong = sum(r.get("repeat_count", 1) for r in missed if r["verdict"] == "THESIS_WRONG")
+        setups_correct = sum(1 for r in missed if r["verdict"] == "THESIS_CORRECT")
+        setups_wrong = sum(1 for r in missed if r["verdict"] == "THESIS_WRONG")
+
+        closed = cls.load_closed()
+        traded_right = sum(1 for t in closed if t.get("is_win"))
+        traded_total = len(closed)
+
+        n_setups = setups_correct + setups_wrong
+        combined_right = traded_right + setups_correct
+        combined_total = traded_total + n_setups
+        return {
+            "missed_setups": n_setups,
+            "missed_correct": setups_correct,
+            "missed_wrong": setups_wrong,
+            "missed_directional_pct": round(setups_correct / n_setups * 100, 1) if n_setups else None,
+            "persistence_events": correct + wrong,     # how often they re-appeared
+            "tradeable_accuracy_pct": round(traded_right / traded_total * 100, 1) if traded_total else 0.0,
+            "combined_directional_pct": round(combined_right / combined_total * 100, 1) if combined_total else None,
+            "interpretation": (
+                "entry timing is the bottleneck — the model reads direction better than it fills"
+                if n_setups >= 5 and setups_correct / max(n_setups, 1) > 0.6 else
+                "not enough missed setups to separate model quality from execution"),
+        }
+
+    @classmethod
+    def audit_integrity(cls, repair: bool = False) -> dict:
+        """
+        Standing integrity check on the closed ledger. Runs on every summary so
+        corruption surfaces immediately instead of silently inflating accuracy.
+
+        Catches the churn signature: multiple resolved records sharing a
+        (ticker, direction, entry, outcome) tuple. Those are the SAME trade recorded N
+        times, and each copy adds a phantom win to accuracy and a phantom R to equity.
+        """
+        closed = cls.load_closed()
+        seen = {}
+        dupes = []
+        for t in closed:
+            k = (t.get("ticker"), t.get("direction"), round(float(t.get("entry", 0) or 0), 10),
+                 t.get("outcome"))
+            if k in seen:
+                dupes.append(t)
+            else:
+                seen[k] = t
+
+        report = {
+            "total_records": len(closed),
+            "unique_trades": len(seen),
+            "duplicates": len(dupes),
+            "duplicate_pct": round(len(dupes) / len(closed) * 100, 1) if closed else 0.0,
+            "affected_tickers": sorted({d.get("ticker") for d in dupes}),
+            "clean": not dupes,
+        }
+        if repair and dupes:
+            deduped = list(seen.values())
+            deduped.sort(key=lambda t: t.get("closed_epoch", 0) or 0)
+            cls._atomic_write(SHADOW_CLOSED_FILE, deduped)
+            report["repaired"] = True
+            print(f"[ledger] purged {len(dupes)} duplicate records "
+                  f"({', '.join(report['affected_tickers'][:5])})", flush=True)
+        return report
 
     @classmethod
     def equity_curve(cls, starting_capital: float = 1000.0, risk_per_trade: float = 30.0) -> dict:

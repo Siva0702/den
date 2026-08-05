@@ -270,14 +270,20 @@ def build_ledger_report() -> str:
                 else f"`LEARNING` — `{WinRateCalibrator.MIN_SAMPLES_GLOBAL - cal['total_samples']}` more needed")
 
     eq = ShadowTradeLedger.equity_curve(ACCOUNT_BALANCE)
+    da = ShadowTradeLedger.directional_accuracy()
     return f"""📒 **SHADOW LEDGER — FULL REPORT**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 **ACCURACY `{s['accuracy_pct']}%`** — `{s['wins']}W / {s['losses']}L` of `{s['total']}` resolved
+🎯 **TRADEABLE ACCURACY `{s['accuracy_pct']}%`** — `{s['wins']}W / {s['losses']}L` of `{s['total']}` resolved
 👁️ Open `{s['open']}` | tracking now
 
 💵 **SIMULATED ACCOUNT** (start `${eq['starting_capital']:,.0f}`, risk `${eq['risk_per_trade']:.0f}`/trade)
 Equity `${eq['final_equity']:,.2f}` | Net `${eq['net_profit']:+,.2f}` (`{eq['return_pct']:+.2f}%`)
 Total `{eq['total_R']:+.2f}R` | avg `{eq['avg_R']:+.3f}R`/trade | max DD `{eq['max_drawdown_pct']:.1f}%`
+
+🧭 **DIRECTIONAL** (setups we called right but could not enter)
+Missed `{da['missed_setups']}` | correct `{da['missed_correct']}` | wrong `{da['missed_wrong']}` \
+| directional `{da['missed_directional_pct'] if da['missed_directional_pct'] is not None else '—'}%`
+_{da['interpretation']}_
 
 **EXITS**
 `TP1 {s['tp1']}`  `TP2 {s['tp2']}`  `TP3 {s['tp3']}`  `TP4 {s['tp4']}`  → wins `{s['wins']}`
@@ -693,6 +699,8 @@ def run_continuous_quant_hunter():
                 "kelly": kelly, "final_margin": margin, "actual_notional": notional,
                 "exact_gain_usd": gain_usd, "exact_loss_usd": loss_usd, "roi_gain_pct": roi_pct,
                 "chosen_leverage": leverage, "rsi": signal.get("rsi", 0), "atr": atr_val,
+                "live_price": float(price_map[ticker]["close"]),
+                "candle_ts": int(f["df_15m"].iloc[-1].get("timestamp", 0) or 0),
                 "session": session_name, "derivatives": derivatives, "news": news,
                 "calendar": calendar, "event_vol": event_vol, "df_5m": f.get("df_5m"),
                 "feature_snapshot": features,
