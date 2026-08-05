@@ -45,14 +45,43 @@ class UpstashRedisStateSync:
     def _repo_root(cls) -> str:
         return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+    _redis_client = None
+
+    @classmethod
+    def _get_client(cls):
+        if cls._redis_client is not None:
+            return cls._redis_client
+        url = os.getenv("UPSTASH_REDIS_REST_URL", "").strip().strip('"').strip("'")
+        token = os.getenv("UPSTASH_REDIS_REST_TOKEN", "").strip().strip('"').strip("'")
+        if url and not url.startswith("http://") and not url.startswith("https://"):
+            url = f"https://{url}"
+        if url and token:
+            try:
+                from upstash_redis import Redis
+                cls._redis_client = Redis(url=url, token=token)
+                return cls._redis_client
+            except Exception as e:
+                pass
+        return None
+
     @classmethod
     def enabled(cls) -> bool:
         if cls._enabled is True:
             return True
 
+        client = cls._get_client()
+        if client:
+            try:
+                res = client.ping()
+                if res and str(res).upper() in ("PONG", "OK"):
+                    print("[redis-sync] ENABLED — Upstash Redis state persistence active (0 git churn)", flush=True)
+                    cls._enabled = True
+                    return True
+            except Exception:
+                pass
+
         url = os.getenv("UPSTASH_REDIS_REST_URL", "").strip().strip('"').strip("'")
         token = os.getenv("UPSTASH_REDIS_REST_TOKEN", "").strip().strip('"').strip("'")
-
         if url and not url.startswith("http://") and not url.startswith("https://"):
             url = f"https://{url}"
 
@@ -60,7 +89,7 @@ class UpstashRedisStateSync:
             cls._enabled = False
             return False
 
-        # Quick connection test with fast-fail (3s, 5s)
+        # Quick connection test fallback
         for timeout_val in (3, 5):
             try:
                 headers = {"Authorization": f"Bearer {token}", "User-Agent": "DenEngine/39.0", "Content-Type": "application/json"}
@@ -74,12 +103,27 @@ class UpstashRedisStateSync:
             except Exception:
                 pass
 
-        # Allow re-check on next sync cycle instead of locking to False forever
         cls._enabled = None
         return False
 
     @classmethod
     def _redis_cmd(cls, cmd_list: list) -> tuple:
+        if not cmd_list:
+            return False, None
+
+        # Method 1: upstash-redis SDK (httpx backend)
+        client = cls._get_client()
+        if client:
+            try:
+                cmd_name = str(cmd_list[0]).lower()
+                args = cmd_list[1:]
+                if hasattr(client, cmd_name):
+                    res = getattr(client, cmd_name)(*args)
+                    return True, res
+            except Exception:
+                pass
+
+        # Method 2: Standard requests HTTP POST fallback
         url = os.getenv("UPSTASH_REDIS_REST_URL", "").strip().strip('"').strip("'")
         token = os.getenv("UPSTASH_REDIS_REST_TOKEN", "").strip().strip('"').strip("'")
         if url and not url.startswith("http://") and not url.startswith("https://"):
@@ -93,7 +137,6 @@ class UpstashRedisStateSync:
             "Content-Type": "application/json"
         }
         
-        # Method 1: POST command array JSON (5s timeout)
         for attempt in range(2):
             try:
                 r = requests.post(url, json=cmd_list, headers=headers, timeout=5)
@@ -102,16 +145,6 @@ class UpstashRedisStateSync:
                     return True, res
             except Exception:
                 pass
-
-        # Method 2: GET URL path fallback (5s timeout)
-        try:
-            cmd_path = "/".join([str(x) for x in cmd_list])
-            r = requests.get(f"{url}/{cmd_path}", headers={"Authorization": f"Bearer {token}", "User-Agent": "DenEngine/39.0"}, timeout=5)
-            if r.status_code == 200:
-                res = r.json().get("result")
-                return True, res
-        except Exception as e:
-            print(f"[redis-sync] Redis cmd error {cmd_list[:2]}: {e}", flush=True)
 
         return False, None
 
