@@ -50,15 +50,17 @@ class UpstashRedisStateSync:
         if cls._enabled is not None:
             return cls._enabled
 
-        url = os.getenv("UPSTASH_REDIS_REST_URL", "").strip()
-        token = os.getenv("UPSTASH_REDIS_REST_TOKEN", "").strip()
+        url = os.getenv("UPSTASH_REDIS_REST_URL", "").strip().strip('"').strip("'")
+        token = os.getenv("UPSTASH_REDIS_REST_TOKEN", "").strip().strip('"').strip("'")
+
+        if url and not url.startswith("http://") and not url.startswith("https://"):
+            url = f"https://{url}"
 
         if not url or not token:
             # Fallback check if user passed redis:// URL
-            redis_url = os.getenv("UPSTASH_REDIS_URL", "").strip()
+            redis_url = os.getenv("UPSTASH_REDIS_URL", "").strip().strip('"').strip("'")
             if redis_url and "upstash.io" in redis_url:
                 try:
-                    # Parse redis://default:token@host:port -> https://host
                     user_pass, host_port = redis_url.replace("redis://", "").split("@")
                     token = user_pass.split(":")[-1]
                     host = host_port.split(":")[0]
@@ -88,8 +90,10 @@ class UpstashRedisStateSync:
 
     @classmethod
     def _redis_cmd(cls, cmd_list: list) -> tuple:
-        url = os.getenv("UPSTASH_REDIS_REST_URL", "").strip()
-        token = os.getenv("UPSTASH_REDIS_REST_TOKEN", "").strip()
+        url = os.getenv("UPSTASH_REDIS_REST_URL", "").strip().strip('"').strip("'")
+        token = os.getenv("UPSTASH_REDIS_REST_TOKEN", "").strip().strip('"').strip("'")
+        if url and not url.startswith("http://") and not url.startswith("https://"):
+            url = f"https://{url}"
         if not url or not token:
             return False, None
 
