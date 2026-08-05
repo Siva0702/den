@@ -42,6 +42,7 @@ class UpstashRedisStateSync:
     _enabled = None
     _lock = threading.Lock()
     _last_push = 0.0
+    _last_pull = 0.0
 
     @classmethod
     def _repo_root(cls) -> str:
@@ -196,6 +197,7 @@ class UpstashRedisStateSync:
             except Exception as e:
                 print(f"[redis-sync] Error writing derivatives history: {e}", flush=True)
 
+        cls._last_pull = time.time()
         print(f"[redis-sync] Restored {restored_count} state files from Upstash Redis", flush=True)
         return True
 
@@ -258,9 +260,12 @@ class UpstashRedisStateSync:
 
     @classmethod
     def status(cls) -> dict:
+        pushed_s = time.strftime('%H:%M:%S', time.localtime(cls._last_push)) if cls._last_push else "never"
+        pulled_s = time.strftime('%H:%M:%S', time.localtime(cls._last_pull)) if cls._last_pull else "never"
         return {
             "enabled": bool(cls._enabled),
-            "last_push": (time.strftime('%H:%M:%S', time.localtime(cls._last_push)) if cls._last_push else "never"),
+            "last_push": pushed_s,
+            "last_pull": pulled_s,
             "provider": "Upstash Redis (REST)",
         }
 
@@ -298,7 +303,7 @@ class UnifiedStateSync:
         from audit.state_sync import GitStateSync
         if UpstashRedisStateSync.enabled():
             st = UpstashRedisStateSync.status()
-            return f"ENABLED ({st['provider']} @ {st['last_push']})"
+            return f"ENABLED ({st['provider']} | pull: {st['last_pull']} | push: {st['last_push']})"
         elif GitStateSync.enabled():
             st = GitStateSync.status()
             return f"ENABLED (Git @ {st.get('last_push', 'never')})"
