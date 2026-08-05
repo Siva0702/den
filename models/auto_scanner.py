@@ -213,6 +213,38 @@ def digest_interval_seconds() -> tuple:
 # ============================================================
 # "POSITIONED" REPLY LISTENER
 # ============================================================
+def build_calendar_report(hours: int = 168) -> str:
+    """On-demand 7-day event calendar, triggered by texting 'calendar' to the bot."""
+    events = ScheduledEventCalendar.upcoming(hours=hours, tiers=("CRITICAL", "HIGH", "MEDIUM"))
+    if not events:
+        return ("📅 **EVENT CALENDAR**\n" + "━" * 28 +
+                "\n_No scheduled high-impact events in the next 7 days._")
+
+    by_day = {}
+    for e in events:
+        day = e["when_utc"][:10]
+        by_day.setdefault(day, []).append(e)
+
+    icon = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡"}
+    blocks = []
+    for day in sorted(by_day)[:7]:
+        rows = "\n".join(
+            f"  {icon.get(e['tier'], '⚪')} `{e['when_utc'][11:16]}` "
+            f"{e['title'][:46]}"
+            f"{'  _(' + str(round(e['minutes_away'] / 60, 1)) + 'h)_' if e['minutes_away'] < 48 * 60 else ''}"
+            for e in by_day[day][:8])
+        blocks.append(f"**{day}**\n{rows}")
+
+    earnings = [e for e in events if e["kind"] == "EARNINGS"]
+    macro = [e for e in events if e["kind"] == "MACRO"]
+    return ("📅 **EVENT CALENDAR — NEXT 7 DAYS**\n" + "━" * 28 + "\n" +
+            f"`{len(macro)}` macro · `{len(earnings)}` earnings · "
+            f"🔴 critical 🟠 high 🟡 medium\n\n" +
+            "\n\n".join(blocks) +
+            "\n\n_Entries are blacked out ±90min before / 30min after a critical event "
+            "for the affected asset; scores are graded down as events approach._\n" + "━" * 28)
+
+
 def build_ledger_report() -> str:
     """Full on-demand ledger report, triggered by texting 'shadow ledger' to the bot."""
     s = ShadowTradeLedger.summary()
@@ -236,9 +268,15 @@ def build_ledger_report() -> str:
                 if cal['status'] == 'CALIBRATED'
                 else f"`LEARNING` — `{WinRateCalibrator.MIN_SAMPLES_GLOBAL - cal['total_samples']}` more needed")
 
+    eq = ShadowTradeLedger.equity_curve(ACCOUNT_BALANCE)
     return f"""📒 **SHADOW LEDGER — FULL REPORT**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-👁️ Open `{s['open']}` | Resolved `{s['total']}` | Accuracy `{s['accuracy_pct']}%`
+🎯 **ACCURACY `{s['accuracy_pct']}%`** — `{s['wins']}W / {s['losses']}L` of `{s['total']}` resolved
+👁️ Open `{s['open']}` | tracking now
+
+💵 **SIMULATED ACCOUNT** (start `${eq['starting_capital']:,.0f}`, risk `${eq['risk_per_trade']:.0f}`/trade)
+Equity `${eq['final_equity']:,.2f}` | Net `${eq['net_profit']:+,.2f}` (`{eq['return_pct']:+.2f}%`)
+Total `{eq['total_R']:+.2f}R` | avg `{eq['avg_R']:+.3f}R`/trade | max DD `{eq['max_drawdown_pct']:.1f}%`
 
 **EXITS**
 `TP1 {s['tp1']}`  `TP2 {s['tp2']}`  `TP3 {s['tp3']}`  `TP4 {s['tp4']}`  → wins `{s['wins']}`
@@ -275,6 +313,12 @@ def poll_positioned_replies():
                     text = reply.get("text", "").strip().lower()
                     rid = reply.get("reply_to_message_id")
                     # On-demand ledger report.
+                    if "calendar" in text or text in ("/calendar", "/cal", "/events"):
+                        try:
+                            telegram.send_alert(build_calendar_report())
+                        except Exception as e:
+                            print(f"[!] Calendar report error: {e}", flush=True)
+                        continue
                     if ("shadow" in text and "ledger" in text) or text in ("/ledger", "/shadow", "ledger"):
                         try:
                             telegram.send_alert(build_ledger_report())
@@ -922,6 +966,7 @@ def send_hunting_digest(candidates, prelim, session_name, label, ist_str,
                      f"`{format_price_dynamic(c.get('entry', 0))}` | {badge}")
 
     shadow = ShadowTradeLedger.summary()
+    eqc = ShadowTradeLedger.equity_curve(ACCOUNT_BALANCE)
     cal = WinRateCalibrator.build_model()
 
     if cal["status"] == "CALIBRATED":
@@ -939,15 +984,9 @@ def send_hunting_digest(candidates, prelim, session_name, label, ist_str,
                    f"({s['sl_then_tp_rate'] * 100:.0f}%). Winners take up to {s['winner_mae_p85_pct']:.2f}% heat; "
                    f"recommended SL multiplier `{s['recommended_sl_multiplier']}x`.")
 
-    cal_events = ScheduledEventCalendar.upcoming(hours=72)
-    if cal_events:
-        ev_lines = "\n".join(
-            f"`{e['minutes_away'] / 60:5.1f}h` [{e['tier'][:4]}] {e['title'][:52]}"
-            for e in cal_events[:6])
-        events_block = f"\n📅 **NEXT 72H EVENT RISK:**\n{ev_lines}\n"
-    else:
-        events_block = "\n📅 **NEXT 72H:** _No high-impact scheduled events._\n"
-
+    # Calendar moved out of the digest — it is reference data that rarely changes
+    # between hourly messages, so repeating six identical lines every hour was noise.
+    # Available on demand via the `calendar` command instead.
     msg = f"""🛰️ **DEN ENGINE HUNTING DIGEST** — {ist_str} ({label} cadence)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📊 **SESSION:** `{session_name}` | Dispatch floor: `{active_floor:.0f}/100`{" ⚠️ relaxed" if relaxed else ""}
@@ -957,9 +996,9 @@ def send_hunting_digest(candidates, prelim, session_name, label, ist_str,
 👁️ **SHADOW BOOK:** `{shadow['open']}` open | `{shadow['total']}` resolved | accuracy `{shadow['accuracy_pct']}%`
 `TP1 {shadow['tp1']}` `TP2 {shadow['tp2']}` `TP3 {shadow['tp3']}` `TP4 {shadow['tp4']}` \
 `SL {shadow['sl_hit']}` `SL→TP {shadow['sl_then_tp']}` `TO {shadow['timeouts']}`
-💰 Net `{shadow['net_pct']:+.2f}%` (win `{shadow['gross_win_pct']:+.2f}%` / loss `-{shadow['gross_loss_pct']:.2f}%`)\
+💵 Equity `${eqc['final_equity']:,.0f}` from `${eqc['starting_capital']:,.0f}` | Net `${eqc['net_profit']:+,.2f}` \
+(`{eqc['total_R']:+.1f}R`, DD `{eqc['max_drawdown_pct']:.1f}%`)\
 {f" | PF `{shadow['profit_factor']}`" if shadow['profit_factor'] else ""}{sl_note}
-{events_block}
 
 🏆 **TOP {len(pool)} LIVE CANDIDATES:**
 {chr(10).join(lines) if lines else "_No qualifying candidates this cycle._"}

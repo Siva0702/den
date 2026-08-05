@@ -528,6 +528,54 @@ class ShadowTradeLedger:
         }
 
     @classmethod
+    def equity_curve(cls, starting_capital: float = 1000.0, risk_per_trade: float = 30.0) -> dict:
+        """
+        What the ledger would have done to a real $1000 account.
+
+        Shadow records store price outcomes, not position sizes, so PnL is expressed in
+        R-multiples — pnl_pct divided by the trade's own stop distance — then multiplied
+        by a fixed dollar risk. That keeps the equity curve independent of leverage
+        guesswork: a trade that made 1R made one unit of risk, whatever size it was.
+        """
+        closed = sorted(cls.load_closed(), key=lambda t: t.get("closed_epoch", 0) or 0)
+        equity = starting_capital
+        peak = starting_capital
+        max_dd = 0.0
+        wins = losses = 0
+        r_total = 0.0
+        for t in closed:
+            entry = float(t.get("entry", 0) or 0)
+            sl = float(t.get("stop_loss", 0) or 0)
+            if entry <= 0 or sl <= 0:
+                continue
+            sl_pct = abs(entry - sl) / entry * 100.0
+            if sl_pct <= 0:
+                continue
+            r = float(t.get("pnl_pct", 0.0) or 0.0) / sl_pct
+            r_total += r
+            equity += risk_per_trade * r
+            peak = max(peak, equity)
+            dd = (peak - equity) / peak * 100 if peak else 0.0
+            max_dd = max(max_dd, dd)
+            if t.get("is_win"):
+                wins += 1
+            else:
+                losses += 1
+
+        n = wins + losses
+        return {
+            "starting_capital": starting_capital,
+            "risk_per_trade": risk_per_trade,
+            "final_equity": round(equity, 2),
+            "net_profit": round(equity - starting_capital, 2),
+            "return_pct": round((equity - starting_capital) / starting_capital * 100, 2),
+            "total_R": round(r_total, 2),
+            "avg_R": round(r_total / n, 3) if n else 0.0,
+            "max_drawdown_pct": round(max_dd, 2),
+            "trades": n,
+        }
+
+    @classmethod
     def performance_ranking(cls, top_n: int = 10) -> dict:
         """Best and worst performers by net PnL, for the on-demand ledger report."""
         closed = cls.load_closed()
