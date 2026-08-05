@@ -581,16 +581,21 @@ class ShadowTradeLedger:
             else:
                 gross_loss += abs(pnl)
 
+        # Breakeven is neither. Folding it into `losses` understated accuracy — a trade
+        # that reached target and trailed back to entry lost nothing and must not be
+        # counted against the win rate, nor inflate gross loss.
         total = len(closed)
-        wins = sum(1 for t in closed if t.get("is_win"))
-        losses = total - wins
+        wins = sum(1 for t in closed if t.get("is_win") is True)
+        breakeven = sum(1 for t in closed if t.get("is_breakeven"))
+        losses = total - wins - breakeven
         tp_total = sum(counts[f"TP{i}_HIT"] for i in (1, 2, 3, 4))
         return {
             "open": len(open_trades),
             "total": total,
             "wins": wins,
             "losses": losses,
-            "accuracy_pct": round(wins / total * 100, 1) if total else 0.0,
+            # Decided trades only: breakeven is excluded from the denominator.
+            "accuracy_pct": round(wins / (wins + losses) * 100, 1) if (wins + losses) else 0.0,
             "tp1": counts["TP1_HIT"], "tp2": counts["TP2_HIT"],
             "tp3": counts["TP3_HIT"], "tp4": counts["TP4_HIT"],
             "tp_total": tp_total,
@@ -598,7 +603,7 @@ class ShadowTradeLedger:
             "sl_then_tp": counts["SL_THEN_TP"],
             "partial_then_sl": counts["PARTIAL_THEN_SL"],
             "timeouts": counts["TIMEOUT"] + counts["TIMEOUT_NO_DATA"],
-            "breakeven": sum(1 for t in closed if t.get("is_breakeven")),
+            "breakeven": breakeven,
             "gross_win_pct": round(gross_win, 2),
             "gross_loss_pct": round(gross_loss, 2),
             "net_pct": round(gross_win - gross_loss, 2),
@@ -606,6 +611,8 @@ class ShadowTradeLedger:
             "sl_then_tp_pct": round(counts["SL_THEN_TP"] / total * 100, 1) if total else 0.0,
             "avg_mae_pct": round(sum(abs(t.get("mae_pct", 0)) for t in closed) / total, 3) if total else 0.0,
             "avg_mfe_pct": round(sum(abs(t.get("mfe_pct", 0)) for t in closed) / total, 3) if total else 0.0,
+            # Win rate over ALL resolutions, breakeven included in the denominator —
+            # deliberately different from accuracy, and labelled as such.
             "win_rate": round(wins / total * 100, 1) if total else 0.0,
         }
 
