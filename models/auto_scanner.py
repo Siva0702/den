@@ -670,7 +670,10 @@ def run_continuous_quant_hunter():
             kelly = (kelly_position_size(win_rate, rr, ACCOUNT_BALANCE) if win_rate is not None
                      else {"kelly_full": 0.0, "kelly_half": 0.0,
                            "dollars_at_risk": MIN_RISK_USD, "risk_pct": 0.0})
-            raw_lev = max(int(round(1.0 / max(sl_pct * 2.5, 0.01))), 10)
+            # Cap the REQUEST as well as the exchange limit. A 0.4% stop asks for 100x,
+            # and while the venue cap trims it, requesting absurd leverage means the
+            # binding constraint is the exchange rather than our own risk view.
+            raw_lev = max(min(int(round(1.0 / max(sl_pct * 2.5, 0.01))), 40), 5)
             lev_meta = ExchangeLeverageEngine.get_calibrated_leverage(ticker, raw_lev)
             leverage = lev_meta["recommended_leverage"]
 

@@ -28,6 +28,14 @@ class ExchangeLeverageEngine:
         "ORDI/USDT": 50,
     }
 
+    # Index/ETF proxies are the least leverage-tolerant instruments in the universe.
+    INDEX_PROXIES = {"SPY", "QQQ", "IWM", "XLE"}
+
+    # Crypto bases not individually listed above still behave like crypto, not equity.
+    KNOWN_CRYPTO_BASES = {
+        "NOT", "TON", "JUP", "W", "ENA", "BONK", "SHIB", "POL", "CL",
+    }
+
     @classmethod
     def get_calibrated_leverage(cls, ticker: str, ideal_leverage: int) -> dict:
         if ticker in cls.EQUITY_PAIRS:
@@ -40,8 +48,20 @@ class ExchangeLeverageEngine:
             exchange_name = "Binance Futures (Crypto)"
             max_allowed = cls.CRYPTO_PAIRS[ticker]
         else:
-            exchange_name = "Binance Futures"
-            max_allowed = 50
+            # UNLISTED ASSETS. 39 of the 87-asset universe were not in any table and
+            # silently defaulted to 50x — including SPY, QQQ, IWM, JPM, V and MA. Venues
+            # cap index and equity proxies far below that, so sizing for 50x when the
+            # exchange allows 10x understates margin by 5x and takes five times the
+            # intended risk. Default now falls back by ASSET CLASS, conservatively,
+            # because being under-levered costs upside while being over-levered costs
+            # the account.
+            base = ticker.split("/")[0].upper()
+            if base in cls.INDEX_PROXIES:
+                exchange_name, max_allowed = "Binance Futures (Index)", 20
+            elif base in cls.KNOWN_CRYPTO_BASES:
+                exchange_name, max_allowed = "Binance Futures (Crypto)", 25
+            else:
+                exchange_name, max_allowed = "Binance Futures (Unlisted)", 20
 
         final_leverage = min(ideal_leverage, max_allowed)
 
