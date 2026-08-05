@@ -26,6 +26,7 @@ from audit.engine_efficiency import EngineEfficiencyTracker
 from audit.shadow_ledger import ShadowTradeLedger
 from audit.calibration import WinRateCalibrator
 from audit.score_tracker import ScoreStabilityTracker
+from audit.redis_state_sync import UnifiedStateSync as GitStateSync
 from data.exchange_feed import BitunixWeexLiveFeed
 from data.derivatives_feed import DerivativesIntelligence
 from news.market_universe import DynamicMarketUniverse
@@ -435,6 +436,9 @@ def run_continuous_quant_hunter():
     # ---- Advance the shadow ledger against live prices ----------------------
     try:
         resolved = ShadowTradeLedger.update_prices(price_map)
+        if resolved:
+            threading.Thread(target=GitStateSync.push_state,
+                             args=("resolved trades",), daemon=True).start()
         for t in resolved:
             print(f"[shadow] {t['ticker']} {t['direction']} -> {t['outcome']} "
                   f"({t['pnl_pct']:+.2f}%) {','.join(t['post_mortem']['tags'])}", flush=True)
@@ -891,6 +895,11 @@ win rate `{shadow['win_rate']}%`{f", SL-then-TP `{shadow.get('sl_then_tp_pct', 0
 def start_background_scanner_loop():
     print(f"🚀 Den Engine {ENGINE_VERSION} starting...", flush=True)
     scanner_state["status"] = "INITIALIZING"
+    # Restore ledger/lexicon/derivatives history written before the last restart.
+    try:
+        GitStateSync.pull_on_startup()
+    except Exception as e:
+        print(f"[sync] startup pull error (continuing): {e}", flush=True)
     while True:
         try:
             scanner_state["status"] = "SCANNING"
@@ -969,6 +978,7 @@ def learning_reporter():
 🎯 **SCORE BINS (measured):**
 {bins}
 
+💾 **STATE SYNC:** `{GitStateSync.status()}`
 🔬 **DERIVATIVES HISTORY:** `{deriv['rows']}` rows, `{deriv['tickers']}` assets, `{deriv['span_hours']}h` span
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
             telegram.send_alert(msg)
@@ -984,4 +994,5 @@ if __name__ == "__main__":
     threading.Thread(target=poll_positioned_replies, daemon=True).start()
     threading.Thread(target=calendar_refresher, daemon=True).start()
     threading.Thread(target=learning_reporter, daemon=True).start()
+    threading.Thread(target=GitStateSync.sync_daemon, daemon=True).start()
     start_health_server()

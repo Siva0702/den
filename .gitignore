@@ -16,16 +16,10 @@ Thumbs.db
 data/raw_financials/*.pdf
 data/raw_financials/*.xlsx
 
-# Generated engine state — regenerated at runtime, too large / too churny for git
-models/audit/backtest_closed.json
-models/audit/shadow_open.json
+# Generated engine state — stored in Upstash Redis, ignored by git
+models/audit/shadow_ledger.json
 models/audit/shadow_closed.json
-models/audit/news_pending.json
-models/audit/learned_lexicon.json
-models/audit/event_calendar.json
-models/audit/event_outcomes.json
-models/audit/upgrade_proposals.json
-models/portfolio/signal_cooldown.json
-models/portfolio/active_positions.json
-models/portfolio/dispatched_signals.json
 models/audit/derivatives_history.jsonl
+models/audit/engine_efficiency.json
+models/audit/backtest_closed.json
+models/audit/upgrade_proposals.json
