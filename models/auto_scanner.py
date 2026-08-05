@@ -211,6 +211,54 @@ def digest_interval_seconds() -> tuple:
 # ============================================================
 # "POSITIONED" REPLY LISTENER
 # ============================================================
+def build_ledger_report() -> str:
+    """Full on-demand ledger report, triggered by texting 'shadow ledger' to the bot."""
+    s = ShadowTradeLedger.summary()
+    rank = ShadowTradeLedger.performance_ranking(10)
+    cal = WinRateCalibrator.build_model(force=True)
+
+    def rows(items, sign):
+        if not items:
+            return "_no resolved trades yet_"
+        return "\n".join(
+            f"`{r['ticker']:<12}` {sign} `{r['net_pct']:+6.2f}%` | {r['wins']}/{r['trades']} "
+            f"(`{r['win_rate']:.0f}%`)" for r in items)
+
+    open_rows = "\n".join(
+        f"`{t['ticker']:<12}` {'🟢' if t['direction']=='LONG' else '🔴'} score `{t['raw_score']:.0f}` "
+        f"MAE `{t['mae_pct']:+.2f}%` MFE `{t['mfe_pct']:+.2f}%` rungs `{t['tp_levels_hit']}`"
+        for t in sorted(ShadowTradeLedger.load_open(),
+                        key=lambda x: -x['raw_score'])[:10]) or "_none open_"
+
+    cal_line = (f"`{cal['status']}` on `{cal['total_samples']}` samples"
+                if cal['status'] == 'CALIBRATED'
+                else f"`LEARNING` — `{WinRateCalibrator.MIN_SAMPLES_GLOBAL - cal['total_samples']}` more needed")
+
+    return f"""📒 **SHADOW LEDGER — FULL REPORT**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+👁️ Open `{s['open']}` | Resolved `{s['total']}` | Accuracy `{s['accuracy_pct']}%`
+
+**EXITS**
+`TP1 {s['tp1']}`  `TP2 {s['tp2']}`  `TP3 {s['tp3']}`  `TP4 {s['tp4']}`  → wins `{s['wins']}`
+`SL {s['sl_hit']}`  `SL→TP {s['sl_then_tp']}`  `PARTIAL {s['partial_then_sl']}`  `TIMEOUT {s['timeouts']}` → losses `{s['losses']}`
+
+**P&L**
+Net `{s['net_pct']:+.2f}%` | gross win `{s['gross_win_pct']:+.2f}%` | gross loss `-{s['gross_loss_pct']:.2f}%`
+Profit factor `{s['profit_factor']}` | avg MAE `{s['avg_mae_pct']}%` | avg MFE `{s['avg_mfe_pct']}%`
+
+🏆 **TOP 10 PERFORMERS**
+{rows(rank['best'], '🟢')}
+
+💀 **WORST 10**
+{rows(rank['worst'], '🔴')}
+
+📋 **OPEN NOW (top 10 by score)**
+{open_rows}
+
+🧠 **CALIBRATION:** {cal_line}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
+
+
 def poll_positioned_replies():
     global last_update_id
     while True:
@@ -223,6 +271,13 @@ def poll_positioned_replies():
                 for reply in replies:
                     text = reply.get("text", "").strip().lower()
                     rid = reply.get("reply_to_message_id")
+                    # On-demand ledger report.
+                    if "shadow" in text and "ledger" in text:
+                        try:
+                            telegram.send_alert(build_ledger_report())
+                        except Exception as e:
+                            print(f"[!] Ledger report error: {e}", flush=True)
+                        continue
                     if rid in dispatched_message_ids and "position" in text:
                         ticker = dispatched_message_ids[rid]
                         positions = monitor.load_positions()
@@ -839,9 +894,24 @@ def send_hunting_digest(candidates, prelim, session_name, label, ist_str,
     for i, c in enumerate(pool, 1):
         emoji = "🟢" if c["direction"] == "LONG" else "🔴"
         wr = c.get("calibrated_win_rate")
-        wr_s = f"WR `{wr * 100:.0f}%`" if wr is not None else "WR `—`"   # — means unmeasured
-        lines.append(f"`{i:2d}.` {emoji} **{c['ticker']}** — `{c['total_score']:.0f}/100` | {wr_s} | "
-                     f"`{format_price_dynamic(c.get('entry', 0))}`")
+        wr_s = f"WR `{wr * 100:.0f}%`" if wr is not None else "WR `—`"
+        # STABILITY BADGE. The digest used to print raw ungated scores, so the same
+        # asset could read LONG 68 one hour and SHORT 63 the next — the exact whiplash
+        # that traps you. These are the scores the engine itself would REFUSE to act
+        # on unless badged stable, and now you can see which is which.
+        st = ScoreStabilityTracker.evaluate(c["ticker"], c["direction"], active_floor)
+        if st["stable"]:
+            badge = f"✅ held {st['consecutive']}"
+        elif st["samples"] < ScoreStabilityTracker.MIN_CONSECUTIVE:
+            badge = f"🆕 new {st['samples']}/{ScoreStabilityTracker.MIN_CONSECUTIVE}"
+        elif st["stdev"] > ScoreStabilityTracker.MAX_STDEV:
+            badge = f"⚠️ σ{st['stdev']:.0f} unstable"
+        elif st["slope"] < ScoreStabilityTracker.MAX_DECAY_SLOPE:
+            badge = f"📉 fading {st['slope']:+.1f}"
+        else:
+            badge = f"○ {st['consecutive']}/{ScoreStabilityTracker.MIN_CONSECUTIVE}"
+        lines.append(f"`{i:2d}.` {emoji} **{c['ticker']}** `{c['total_score']:.0f}` | {wr_s} | "
+                     f"@ `{format_price_dynamic(c.get('entry', 0))}` | {badge}")
 
     shadow = ShadowTradeLedger.summary()
     cal = WinRateCalibrator.build_model()
@@ -876,14 +946,17 @@ def send_hunting_digest(candidates, prelim, session_name, label, ist_str,
 🏛️ **MACRO:** _{reg_data.get('regulatory_status', 'NEUTRAL')}_
 
 🧠 **CALIBRATION:** {cal_line}
-👁️ **SHADOW BOOK:** `{shadow['open']}` open, `{shadow['total']}` resolved, \
-win rate `{shadow['win_rate']}%`{f", SL-then-TP `{shadow.get('sl_then_tp_pct', 0)}%`" if shadow['total'] else ""}{sl_note}
+👁️ **SHADOW BOOK:** `{shadow['open']}` open | `{shadow['total']}` resolved | accuracy `{shadow['accuracy_pct']}%`
+`TP1 {shadow['tp1']}` `TP2 {shadow['tp2']}` `TP3 {shadow['tp3']}` `TP4 {shadow['tp4']}` \
+`SL {shadow['sl_hit']}` `SL→TP {shadow['sl_then_tp']}` `TO {shadow['timeouts']}`
+💰 Net `{shadow['net_pct']:+.2f}%` (win `{shadow['gross_win_pct']:+.2f}%` / loss `-{shadow['gross_loss_pct']:.2f}%`)\
+{f" | PF `{shadow['profit_factor']}`" if shadow['profit_factor'] else ""}{sl_note}
 {events_block}
 
 🏆 **TOP {len(pool)} LIVE CANDIDATES:**
 {chr(10).join(lines) if lines else "_No qualifying candidates this cycle._"}
 
-💡 _87 assets, 4 timeframes, derivatives & news enrichment on the top {ENRICH_TOP_N}._
+_✅ stable · 🆕 forming · ⚠️ noisy · 📉 fading — only ✅ can be dispatched._
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
     telegram.send_alert(msg)
     print(f"[✓] Digest sent ({label} cadence, {ist_str})", flush=True)

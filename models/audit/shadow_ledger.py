@@ -475,22 +475,67 @@ class ShadowTradeLedger:
     # ------------------------------------------------------------------
     @classmethod
     def summary(cls) -> dict:
+        """
+        Full breakdown, not a headline. The previous version reported only total/wins/
+        win_rate, which said nothing about WHERE trades ended — and where they end is
+        the whole diagnostic. Exit-rung counts show whether targets are set sensibly;
+        SL vs SL_THEN_TP separates a wrong read from a stop that was merely too tight.
+        """
         closed = cls.load_closed()
-        if not closed:
-            return {"total": 0, "wins": 0, "losses": 0, "win_rate": 0.0, "open": len(cls.load_open())}
+        open_trades = cls.load_open()
+        counts = {"TP1_HIT": 0, "TP2_HIT": 0, "TP3_HIT": 0, "TP4_HIT": 0,
+                  "SL_HIT": 0, "SL_THEN_TP": 0, "PARTIAL_THEN_SL": 0,
+                  "TIMEOUT": 0, "TIMEOUT_NO_DATA": 0}
+        gross_win = gross_loss = 0.0
+        for t in closed:
+            oc = t.get("outcome", "")
+            counts[oc] = counts.get(oc, 0) + 1
+            pnl = float(t.get("pnl_pct", 0.0) or 0.0)
+            if t.get("is_win"):
+                gross_win += pnl
+            else:
+                gross_loss += abs(pnl)
 
+        total = len(closed)
         wins = sum(1 for t in closed if t.get("is_win"))
-        sl_then_tp = sum(1 for t in closed if t.get("outcome") == "SL_THEN_TP")
-        timeouts = sum(1 for t in closed if t.get("outcome", "").startswith("TIMEOUT"))
+        losses = total - wins
+        tp_total = sum(counts[f"TP{i}_HIT"] for i in (1, 2, 3, 4))
         return {
-            "total": len(closed),
+            "open": len(open_trades),
+            "total": total,
             "wins": wins,
-            "losses": len(closed) - wins,
-            "win_rate": round(wins / len(closed) * 100, 1),
-            "sl_then_tp_count": sl_then_tp,
-            "sl_then_tp_pct": round(sl_then_tp / len(closed) * 100, 1),
-            "timeouts": timeouts,
-            "avg_mae_pct": round(sum(abs(t.get("mae_pct", 0)) for t in closed) / len(closed), 3),
-            "avg_mfe_pct": round(sum(abs(t.get("mfe_pct", 0)) for t in closed) / len(closed), 3),
-            "open": len(cls.load_open()),
+            "losses": losses,
+            "accuracy_pct": round(wins / total * 100, 1) if total else 0.0,
+            "tp1": counts["TP1_HIT"], "tp2": counts["TP2_HIT"],
+            "tp3": counts["TP3_HIT"], "tp4": counts["TP4_HIT"],
+            "tp_total": tp_total,
+            "sl_hit": counts["SL_HIT"],
+            "sl_then_tp": counts["SL_THEN_TP"],
+            "partial_then_sl": counts["PARTIAL_THEN_SL"],
+            "timeouts": counts["TIMEOUT"] + counts["TIMEOUT_NO_DATA"],
+            "gross_win_pct": round(gross_win, 2),
+            "gross_loss_pct": round(gross_loss, 2),
+            "net_pct": round(gross_win - gross_loss, 2),
+            "profit_factor": round(gross_win / gross_loss, 2) if gross_loss > 0 else None,
+            "sl_then_tp_pct": round(counts["SL_THEN_TP"] / total * 100, 1) if total else 0.0,
+            "avg_mae_pct": round(sum(abs(t.get("mae_pct", 0)) for t in closed) / total, 3) if total else 0.0,
+            "avg_mfe_pct": round(sum(abs(t.get("mfe_pct", 0)) for t in closed) / total, 3) if total else 0.0,
+            "win_rate": round(wins / total * 100, 1) if total else 0.0,
         }
+
+    @classmethod
+    def performance_ranking(cls, top_n: int = 10) -> dict:
+        """Best and worst performers by net PnL, for the on-demand ledger report."""
+        closed = cls.load_closed()
+        by_ticker = {}
+        for t in closed:
+            slot = by_ticker.setdefault(t["ticker"], {"n": 0, "w": 0, "pnl": 0.0})
+            slot["n"] += 1
+            slot["w"] += 1 if t.get("is_win") else 0
+            slot["pnl"] += float(t.get("pnl_pct", 0.0) or 0.0)
+        rows = [{"ticker": k, "trades": v["n"], "wins": v["w"],
+                 "win_rate": round(v["w"] / v["n"] * 100, 1),
+                 "net_pct": round(v["pnl"], 2)} for k, v in by_ticker.items()]
+        rows.sort(key=lambda r: r["net_pct"], reverse=True)
+        return {"best": rows[:top_n], "worst": list(reversed(rows[-top_n:])) if rows else [],
+                "tickers_traded": len(rows)}
