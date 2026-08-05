@@ -10,7 +10,7 @@ from audit.engine_efficiency import EngineEfficiencyTracker
 from alerts.signal_cooldown import SignalCooldownEngine
 from indicators.trade_decay import TradeDecayEngine
 
-POSITIONS_FILE = "portfolio/active_positions.json"
+POSITIONS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "portfolio/active_positions.json")
 
 class ActivePositionMonitor:
     """

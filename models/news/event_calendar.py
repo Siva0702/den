@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
-CALENDAR_FILE = "audit/event_calendar.json"
+CALENDAR_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "audit/event_calendar.json")
 
 class ScheduledEventCalendar:
     """

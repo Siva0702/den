@@ -8,8 +8,9 @@ import threading
 import time
 from datetime import datetime, timezone
 
-LEXICON_FILE = "audit/learned_lexicon.json"
-PENDING_FILE = "audit/news_pending.json"
+MODELS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LEXICON_FILE = os.path.join(MODELS_DIR, "audit/learned_lexicon.json")
+PENDING_FILE = os.path.join(MODELS_DIR, "audit/news_pending.json")
 
 class LearnedNewsSentiment:
     """

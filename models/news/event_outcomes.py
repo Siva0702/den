@@ -7,7 +7,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 
-OUTCOMES_FILE = "audit/event_outcomes.json"
+OUTCOMES_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "audit/event_outcomes.json")
 
 class EventOutcomeLearner:
     """

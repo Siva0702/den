@@ -548,7 +548,7 @@ class WinRateCalibrator:
         }
 
     # ------------------------------------------------------------------
-    SNAPSHOT_FILE = "audit/calibration_model.json"
+    SNAPSHOT_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "audit/calibration_model.json")
 
     @classmethod
     def export_snapshot(cls) -> dict:

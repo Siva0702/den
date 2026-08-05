@@ -5,8 +5,9 @@ import tempfile
 import threading
 import time
 
-COOLDOWN_FILE = "portfolio/signal_cooldown.json"
-POSITIONS_FILE = "portfolio/active_positions.json"
+MODELS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+COOLDOWN_FILE = os.path.join(MODELS_DIR, "portfolio/signal_cooldown.json")
+POSITIONS_FILE = os.path.join(MODELS_DIR, "portfolio/active_positions.json")
 
 class SignalCooldownEngine:
     """

@@ -5,8 +5,9 @@ import tempfile
 import threading
 import time
 
-SHADOW_OPEN_FILE = "audit/shadow_open.json"
-SHADOW_CLOSED_FILE = "audit/shadow_closed.json"
+MODELS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SHADOW_OPEN_FILE = os.path.join(MODELS_DIR, "audit/shadow_open.json")
+SHADOW_CLOSED_FILE = os.path.join(MODELS_DIR, "audit/shadow_closed.json")
 
 class ShadowTradeLedger:
     """

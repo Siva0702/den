@@ -236,7 +236,7 @@ class DerivativesIntelligence:
     # ------------------------------------------------------------------
     # Unified read
     # ------------------------------------------------------------------
-    SNAPSHOT_FILE = "audit/derivatives_history.jsonl"
+    SNAPSHOT_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "audit/derivatives_history.jsonl")
     SNAPSHOT_MIN_INTERVAL = 300.0     # one row per asset per 5 min; upstream refreshes no faster
     _last_snapshot = {}
 
