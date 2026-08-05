@@ -799,6 +799,44 @@ class ShadowTradeLedger:
         return report
 
     @classmethod
+    def backfill_kelly_veto(cls) -> dict:
+        """
+        Retro-classify historical records against the Kelly veto.
+
+        Records written before the veto existed carry no `kelly_vetoed` flag, but every
+        input needed to reconstruct the decision is already stored: the calibrated win
+        rate at entry, and the R:R implied by entry/stop/TP1. Recomputing it means the
+        veto can be judged against 45 real outcomes immediately instead of waiting days
+        for new ones — and the verdict is derived, never assumed.
+
+        Records without a recorded win rate are left untagged rather than guessed.
+        """
+        with cls._lock:
+            rows = cls.load_closed()
+            tagged = skipped = 0
+            for t in rows:
+                if "kelly_vetoed" in t and t.get("kelly_backfilled") is not True:
+                    continue
+                wr = t.get("calibrated_win_rate")
+                e = float(t.get("entry", 0) or 0)
+                sl = float(t.get("stop_loss", 0) or 0)
+                lad = t.get("tp_ladder") or []
+                if wr is None or e <= 0 or sl <= 0 or not lad:
+                    skipped += 1
+                    continue
+                risk = abs(e - sl)
+                reward = abs(float(lad[0]) - e)
+                b = reward / risk if risk else 0.0
+                p_ = float(wr)
+                raw = ((p_ * b) - (1 - p_)) / b if b > 0 else -1.0
+                t["kelly_vetoed"] = raw <= 0
+                t["kelly_full"] = round(raw, 4)
+                t["kelly_backfilled"] = True
+                tagged += 1
+            cls._atomic_write(SHADOW_CLOSED_FILE, rows)
+        return {"tagged": tagged, "skipped_no_winrate": skipped, "total": len(rows)}
+
+    @classmethod
     def kelly_veto_report(cls) -> dict:
         """
         Was Kelly right to refuse?
