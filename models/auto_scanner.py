@@ -463,6 +463,9 @@ def run_continuous_quant_hunter():
     for ticker, f, _ in prelim[:ENRICH_TOP_N]:
         try:
             derivatives = DerivativesIntelligence.analyze(ticker)
+            # Build our own derivatives history — no free historical feed exists, so
+            # this is the only path to ever validating whether this layer helps.
+            DerivativesIntelligence.snapshot(ticker, derivatives, price_map[ticker]["close"])
             news = PerAssetNewsIntelligence.analyze(ticker)
             try:
                 from news.learned_sentiment import LearnedNewsSentiment

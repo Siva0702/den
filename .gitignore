@@ -28,3 +28,4 @@ models/audit/upgrade_proposals.json
 models/portfolio/signal_cooldown.json
 models/portfolio/active_positions.json
 models/portfolio/dispatched_signals.json
+models/audit/derivatives_history.jsonl

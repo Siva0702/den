@@ -1,4 +1,6 @@
 # models/data/derivatives_feed.py
+import json
+import os
 import time
 import threading
 import requests
@@ -231,6 +233,88 @@ class DerivativesIntelligence:
     # ------------------------------------------------------------------
     # Unified read
     # ------------------------------------------------------------------
+    SNAPSHOT_FILE = "audit/derivatives_history.jsonl"
+    SNAPSHOT_MIN_INTERVAL = 300.0     # one row per asset per 5 min; upstream refreshes no faster
+    _last_snapshot = {}
+
+    @classmethod
+    def snapshot(cls, ticker: str, analysis: dict, price: float = None) -> bool:
+        """
+        Append the current derivatives state to an append-only time series.
+
+        There is no free HISTORICAL feed for funding, open interest or crowding, which
+        means the backtester scores on technicals alone and we have ZERO evidence that
+        this entire module helps rather than adds noise. The only way to get that
+        evidence is to start recording now and build the dataset ourselves. Three or
+        four weeks of this makes the derivatives layer testable for the first time.
+
+        JSONL append-only: cheap, crash-safe, and trivially replayable in a backtest.
+        """
+        if not analysis or not analysis.get("available"):
+            return False
+        now = time.time()
+        if now - cls._last_snapshot.get(ticker, 0.0) < cls.SNAPSHOT_MIN_INTERVAL:
+            return False
+
+        f = analysis.get("funding") or {}
+        oi = analysis.get("open_interest") or {}
+        cr = analysis.get("crowding") or {}
+        tk = analysis.get("taker") or {}
+        bk = analysis.get("book") or {}
+        row = {
+            "ts": round(now, 1),
+            "ticker": ticker,
+            "price": price,
+            "funding_rate": f.get("funding_rate"),
+            "funding_apr": f.get("funding_annualised_pct"),
+            "mark_index_premium": f.get("mark_index_premium_pct"),
+            "oi": oi.get("oi_latest"),
+            "oi_chg_12b": oi.get("oi_change_12bar_pct"),
+            "long_acct_pct": cr.get("long_account_pct"),
+            "ls_ratio": cr.get("long_short_ratio"),
+            "taker_ratio": tk.get("taker_buy_sell_ratio"),
+            "book_imbalance": bk.get("bid_ask_imbalance"),
+            "spread_bps": bk.get("spread_bps"),
+            "bid_wall": bk.get("bid_wall_price"),
+            "ask_wall": bk.get("ask_wall_price"),
+            "deriv_bias": analysis.get("derivatives_bias"),
+        }
+        try:
+            os.makedirs(os.path.dirname(cls.SNAPSHOT_FILE) or ".", exist_ok=True)
+            with open(cls.SNAPSHOT_FILE, "a") as fh:
+                fh.write(json.dumps(row) + "\n")
+            cls._last_snapshot[ticker] = now
+            return True
+        except Exception as e:
+            print(f"[!] Derivatives snapshot failed for {ticker}: {e}")
+            return False
+
+    @classmethod
+    def history_stats(cls) -> dict:
+        """How much proprietary derivatives history we have accumulated."""
+        if not os.path.exists(cls.SNAPSHOT_FILE):
+            return {"rows": 0, "tickers": 0, "span_hours": 0.0}
+        rows = 0
+        tickers = set()
+        first = last = None
+        try:
+            with open(cls.SNAPSHOT_FILE, "r") as fh:
+                for line in fh:
+                    try:
+                        d = json.loads(line)
+                    except Exception:
+                        continue
+                    rows += 1
+                    tickers.add(d.get("ticker"))
+                    ts = d.get("ts")
+                    if ts:
+                        first = ts if first is None else min(first, ts)
+                        last = ts if last is None else max(last, ts)
+        except Exception:
+            pass
+        return {"rows": rows, "tickers": len(tickers),
+                "span_hours": round(((last - first) / 3600.0) if first and last else 0.0, 2)}
+
     @classmethod
     def analyze(cls, ticker: str, include_depth: bool = True) -> dict:
         """

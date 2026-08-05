@@ -41,6 +41,13 @@ class WinRateCalibrator:
     BIN_WIDTH = 10.0            # 5-pt bins spread 60 samples across 11 buckets, none usable
     PRIOR_STRENGTH = 15.0       # pseudo-observations pulling a thin bin toward global
 
+    # FIX 4 — backtest setups are sampled every STEP bars but held for up to
+    # MAX_HOLD bars, so consecutive setups on one asset share most of their outcome
+    # window. They are NOT independent observations. Every Wilson bound and z-test
+    # computed on the raw count was therefore overstated. Counts from the backtest
+    # pool are deflated by this factor before any inference.
+    BACKTEST_OVERLAP_FACTOR = 12.0     # MAX_HOLD_BARS(96) / STEP(8)
+
     _cache = {"epoch": 0.0, "model": None}
     CACHE_TTL = 120.0
 
@@ -56,6 +63,38 @@ class WinRateCalibrator:
         centre = p + (z * z) / (2.0 * n)
         margin = z * math.sqrt((p * (1.0 - p) + (z * z) / (4.0 * n)) / n)
         return max(0.0, (centre - margin) / denom)
+
+    @classmethod
+    def effective_n(cls, records: list) -> float:
+        """Independent-observation count after discounting overlapping backtest samples."""
+        live = sum(1 for r in records if r.get("source") != "backtest")
+        bt = sum(1 for r in records if r.get("source") == "backtest")
+        return live + bt / cls.BACKTEST_OVERLAP_FACTOR
+
+    @staticmethod
+    def _bh_fdr(pvals: list, alpha: float = 0.10) -> set:
+        """
+        Benjamini-Hochberg false-discovery-rate control.
+
+        Testing ~19 factors at 90% confidence yields roughly two false positives by
+        chance alone, which is very likely what the +6.7pp and +4.8pp "findings" were.
+        BH keeps the expected proportion of false discoveries under alpha across the
+        whole family of tests instead of controlling each one in isolation.
+        """
+        if not pvals:
+            return set()
+        indexed = sorted(enumerate(pvals), key=lambda kv: kv[1])
+        m = len(indexed)
+        keep = set()
+        for rank, (idx, p) in enumerate(indexed, start=1):
+            if p <= (rank / m) * alpha:
+                keep = {i for i, _ in indexed[:rank]}
+        return keep
+
+    @staticmethod
+    def _z_to_p(z: float) -> float:
+        """Two-sided p-value from a z-score."""
+        return math.erfc(abs(z) / math.sqrt(2.0))
 
     @staticmethod
     def _bin_key(score: float, width: float) -> int:
@@ -110,6 +149,16 @@ class WinRateCalibrator:
         except Exception:
             backtest = []
 
+        for r in live:
+            r.setdefault("source", "live")
+        for r in backtest:
+            r.setdefault("source", "backtest")
+
+        # FIX 1 — the two pools are no longer silently merged. They are scored
+        # separately and reported separately. Previously `closed = live + backtest`
+        # blended 4 live records into 6074 backtest records and quoted the result as a
+        # "measured" win rate, which passed off a technicals-only backtest as if it
+        # carried live derivatives/news/calendar context.
         closed = live + backtest
         total = len(closed)
         wins = sum(1 for t in closed if t.get("is_win"))
@@ -126,6 +175,17 @@ class WinRateCalibrator:
             "session_rates": {},
             "factor_lift": {},
             "sl_stats": {},
+            "pools": {
+                "live": {"n": len(live),
+                         "wins": sum(1 for t in live if t.get("is_win")),
+                         "win_rate": round(sum(1 for t in live if t.get("is_win")) / len(live), 4) if live else None,
+                         "context": "full (derivatives + news + calendar)"},
+                "backtest": {"n": len(backtest),
+                             "wins": sum(1 for t in backtest if t.get("is_win")),
+                             "win_rate": round(sum(1 for t in backtest if t.get("is_win")) / len(backtest), 4) if backtest else None,
+                             "context": "technicals only — no historical derivatives/news"},
+            },
+            "primary_source": "live" if len(live) >= cls.MIN_SAMPLES_GLOBAL else "backtest",
         }
 
         if total == 0:
@@ -195,7 +255,17 @@ class WinRateCalibrator:
                 }
 
         # ---- Factor lift: the "why did it win/lose" layer ---------------
-        model["factor_lift"] = cls._factor_lift(closed, global_rate)
+        # FIX 3 — hold out the most recent 30% by time for out-of-sample validation.
+        timed = sorted(closed, key=lambda t: float(t.get("opened_epoch", 0) or 0))
+        split = int(len(timed) * 0.70)
+        train, holdout = timed[:split], timed[split:]
+        model["factor_lift"] = cls._factor_lift(train, global_rate,
+                                                holdout=holdout, apply_fdr=True)
+        model["validation"] = {
+            "train_n": len(train), "holdout_n": len(holdout),
+            "train_effective_n": round(cls.effective_n(train), 1),
+            "holdout_effective_n": round(cls.effective_n(holdout), 1),
+        }
 
         # ---- Stop-loss statistics: data-driven SL placement -------------
         model["sl_stats"] = cls._sl_stats(closed)
@@ -205,7 +275,8 @@ class WinRateCalibrator:
 
     # ------------------------------------------------------------------
     @classmethod
-    def _factor_lift(cls, closed: list, global_rate: float) -> dict:
+    def _factor_lift(cls, closed: list, global_rate: float,
+                     holdout: list = None, apply_fdr: bool = False) -> dict:
         """
         For every factor the engine can observe, measure the win rate WITH the factor
         present versus ABSENT. The difference is that factor's lift. Factors with
@@ -261,6 +332,7 @@ class WinRateCalibrator:
             for name in vocab:
                 bump(name, name in present, win)
 
+        backtest_heavy = sum(1 for t in closed if t.get("source") == "backtest") > len(closed) * 0.5
         lift = {}
         for name, c in counts.items():
             if c["p_n"] < 8 or c["a_n"] < 8:
@@ -273,9 +345,15 @@ class WinRateCalibrator:
             # samples a pure-noise factor can still show +16pp by luck, and acting on
             # that is how an engine learns superstitions. Anything under |z| = 1.64
             # (90% one-sided) is reported NEUTRAL regardless of how large the gap looks.
+            # FIX 4 — deflate counts to EFFECTIVE sample size before the z-test, so
+            # overlapping backtest windows cannot manufacture significance.
+            deflate = cls.BACKTEST_OVERLAP_FACTOR if backtest_heavy else 1.0
+            p_eff = max(c["p_n"] / deflate, 1.0)
+            a_eff = max(c["a_n"] / deflate, 1.0)
             pooled = (c["p_w"] + c["a_w"]) / (c["p_n"] + c["a_n"])
-            se = math.sqrt(pooled * (1 - pooled) * (1 / c["p_n"] + 1 / c["a_n"])) if 0 < pooled < 1 else 0.0
+            se = math.sqrt(pooled * (1 - pooled) * (1 / p_eff + 1 / a_eff)) if 0 < pooled < 1 else 0.0
             z = (delta / se) if se > 0 else 0.0
+            pval = cls._z_to_p(z)
             significant = abs(z) >= 1.64
 
             if not significant:
@@ -298,10 +376,39 @@ class WinRateCalibrator:
                 "rate_absent": round(rate_absent, 4),
                 "lift": round(delta, 4),
                 "z_score": round(z, 2),
+                "p_value": round(pval, 5),
+                "effective_n_present": round(p_eff, 1),
                 "significant": significant,
                 "wilson_present": round(cls.wilson_lower_bound(c["p_w"], c["p_n"]), 4),
                 "verdict": verdict,
             }
+        # FIX 3a — family-wise false discovery control across all factors tested.
+        if apply_fdr and lift:
+            names = list(lift.keys())
+            survivors = cls._bh_fdr([lift[n]["p_value"] for n in names], alpha=0.10)
+            for i, n in enumerate(names):
+                lift[n]["fdr_survived"] = i in survivors
+                if not lift[n]["fdr_survived"]:
+                    lift[n]["significant"] = False
+                    lift[n]["verdict"] = "NOT_SIGNIFICANT_AFTER_FDR"
+
+        # FIX 3b — out-of-sample check. A factor that only works in-sample is a
+        # curve fit, and the holdout is the only thing that can tell the difference.
+        if holdout:
+            oos = cls._factor_lift(holdout, global_rate)
+            for n, f in lift.items():
+                o = oos.get(n)
+                if not o:
+                    f["oos"] = None
+                    f["confirmed_out_of_sample"] = False
+                    continue
+                same_sign = (f["lift"] > 0) == (o["lift"] > 0)
+                f["oos"] = {"lift": o["lift"], "n": o["n_present"]}
+                f["confirmed_out_of_sample"] = bool(same_sign and abs(o["lift"]) >= 0.02)
+                if f.get("significant") and not f["confirmed_out_of_sample"]:
+                    f["verdict"] = "FAILED_OUT_OF_SAMPLE"
+                    f["significant"] = False
+
         return dict(sorted(lift.items(), key=lambda kv: kv[1]["lift"], reverse=True))
 
     # ------------------------------------------------------------------
@@ -443,10 +550,20 @@ class WinRateCalibrator:
     def report(cls) -> str:
         """Human-readable calibration state, for the Telegram digest and CLI."""
         m = cls.build_model(force=True)
+        pools = m.get("pools", {})
         lines = [
-            f"Status: {m['status']} | samples={m['total_samples']} | "
-            f"global={m['global_win_rate']*100:.1f}% (Wilson LB {m['global_wilson']*100:.1f}%)"
+            f"Status: {m['status']} | primary source: {m.get('primary_source')}",
+            f"  LIVE     n={pools.get('live',{}).get('n',0):5d}  "
+            f"win_rate={(pools.get('live',{}).get('win_rate') or 0)*100:5.1f}%  "
+            f"({pools.get('live',{}).get('context','')})",
+            f"  BACKTEST n={pools.get('backtest',{}).get('n',0):5d}  "
+            f"win_rate={(pools.get('backtest',{}).get('win_rate') or 0)*100:5.1f}%  "
+            f"({pools.get('backtest',{}).get('context','')})",
         ]
+        v = m.get("validation", {})
+        if v:
+            lines.append(f"  effective n (overlap-adjusted): train {v['train_effective_n']} "
+                         f"of {v['train_n']}, holdout {v['holdout_effective_n']} of {v['holdout_n']}")
         if m["score_bins"]:
             lines.append("Score bins:")
             for k, b in sorted(m["score_bins"].items(), key=lambda kv: int(kv[0])):
@@ -456,15 +573,21 @@ class WinRateCalibrator:
                     f"Wilson {b['wilson_lb']*100:5.1f}%{flag}"
                 )
         sig = [(n, f) for n, f in m["factor_lift"].items() if f.get("significant")]
+        tested = len(m["factor_lift"])
         if sig:
-            lines.append("Significant factor lift (|z| >= 1.64):")
+            lines.append(f"Factors surviving FDR + out-of-sample ({len(sig)} of {tested} tested):")
             shown = sig[:5] + [x for x in sig[-4:] if x not in sig[:5]]
             for name, f in shown:
-                lines.append(f"  {f['lift']*100:+6.1f}pp  z={f['z_score']:+5.2f}  "
-                             f"{f['verdict']:<16} {name} (n={f['n_present']})")
+                oos = f.get("oos") or {}
+                lines.append(f"  {f['lift']*100:+6.1f}pp  z={f['z_score']:+5.2f} p={f['p_value']:.4f}  "
+                             f"n_eff={f.get('effective_n_present')}  oos={oos.get('lift')}  {name[:44]}")
         elif m["factor_lift"]:
-            lines.append(f"Factor lift: {len(m['factor_lift'])} factors tracked, "
-                         f"none statistically significant yet")
+            fdr_killed = sum(1 for f in m["factor_lift"].values()
+                             if f.get("verdict") == "NOT_SIGNIFICANT_AFTER_FDR")
+            oos_killed = sum(1 for f in m["factor_lift"].values()
+                             if f.get("verdict") == "FAILED_OUT_OF_SAMPLE")
+            lines.append(f"Factor lift: {tested} tested, ZERO survived. "
+                         f"{fdr_killed} killed by FDR, {oos_killed} failed out-of-sample.")
         if m["sl_stats"].get("available"):
             lines.append(f"SL: {m['sl_stats']['interpretation']}")
             lines.append(f"    recommended SL multiplier: {m['sl_stats']['recommended_sl_multiplier']}x")
