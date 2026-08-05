@@ -27,8 +27,10 @@ class UpstashRedisStateSync:
         "models/audit/learned_lexicon.json": "den:learned_lexicon",
         "models/audit/news_pending.json": "den:news_pending",
         "models/audit/event_outcomes.json": "den:event_outcomes",
+        "models/audit/calibration_model.json":   "den:calibration_model",
         "models/audit/event_calendar.json": "den:event_calendar",
         "models/portfolio/active_positions.json": "den:active_positions",
+        "models/portfolio/notified_milestones.json": "den:notified_milestones",
         "models/portfolio/signal_cooldown.json": "den:signal_cooldown",
         "models/portfolio/dispatched_signals.json": "den:dispatched_signals",
     }

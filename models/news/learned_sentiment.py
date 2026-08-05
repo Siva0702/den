@@ -44,6 +44,7 @@ class LearnedNewsSentiment:
     MIN_TERM_COUNT = 4           # below this a term reports its prior only
     MAX_PENDING = 4000
     MAX_TERMS = 6000
+    MAX_LEXICON_KB = 600.0      # Upstash free-tier REST requests fail near 1MB
 
     STOPWORDS = {
         "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with",
@@ -196,8 +197,29 @@ class LearnedNewsSentiment:
                     slot["mean"] = slot["sum"] / slot["n"]
                     updated += 1
 
+            # PRUNE. The lexicon accrues a term for every word in every headline, so it
+            # grows without bound — it hit 491KB in a day, and Upstash free-tier REST
+            # requests fail near 1MB. That failure is SILENT: sync just stops working and
+            # the engine keeps reporting healthy. Terms below MIN_TERM_COUNT carry no
+            # weight anyway (term_weight returns the prior for them), so dropping the
+            # thinnest ones costs nothing and keeps the payload syncable.
             if len(terms) > cls.MAX_TERMS:
                 terms = dict(sorted(terms.items(), key=lambda kv: kv[1]["n"], reverse=True)[:cls.MAX_TERMS])
+            approx_kb = len(json.dumps(terms)) / 1024.0
+            if approx_kb > cls.MAX_LEXICON_KB:
+                # Keep only terms with real evidence, highest-count first.
+                mature = {k: v for k, v in terms.items() if v["n"] >= cls.MIN_TERM_COUNT}
+                ranked = sorted(mature.items(), key=lambda kv: kv[1]["n"], reverse=True)
+                kept, size = {}, 0
+                for k, v in ranked:
+                    entry = len(k) + 60
+                    if (size + entry) / 1024.0 > cls.MAX_LEXICON_KB:
+                        break
+                    kept[k] = v
+                    size += entry
+                print(f"[news] lexicon pruned {approx_kb:.0f}KB -> "
+                      f"{len(kept)} mature terms (from {len(terms)})", flush=True)
+                terms = kept
 
             lex["terms"] = terms
             lex["updated"] = datetime.now(timezone.utc).isoformat()

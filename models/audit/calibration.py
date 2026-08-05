@@ -1,5 +1,7 @@
 # models/audit/calibration.py
+import json
 import math
+import os
 import re
 import statistics
 import time
@@ -546,6 +548,63 @@ class WinRateCalibrator:
         }
 
     # ------------------------------------------------------------------
+    SNAPSHOT_FILE = "audit/calibration_model.json"
+
+    @classmethod
+    def export_snapshot(cls) -> dict:
+        """
+        Persist the BUILT MODEL, not the raw trades.
+
+        backtest_closed.json is 11MB of individual records, and syncing that to Redis
+        fails outright (free-tier REST caps requests near 1MB) while burning the daily
+        command budget. But calibration never reads those records at query time — it
+        reads the aggregates built from them. Score bins, factor lift and SL stats are
+        a few KB, so the model itself travels for ~0.1% of the cost of its inputs.
+        """
+        m = cls.build_model(force=True)
+        snap = {
+            "built_at": m["built_at"],
+            "total_samples": m["total_samples"],
+            "global_win_rate": m["global_win_rate"],
+            "global_wilson": m["global_wilson"],
+            "status": m["status"],
+            "score_bins": m["score_bins"],
+            "regime_rates": m["regime_rates"],
+            "session_rates": m["session_rates"],
+            "factor_lift": {k: v for k, v in m["factor_lift"].items() if v.get("significant")},
+            "sl_stats": m["sl_stats"],
+            "pools": m.get("pools", {}),
+        }
+        try:
+            os.makedirs(os.path.dirname(cls.SNAPSHOT_FILE) or ".", exist_ok=True)
+            with open(cls.SNAPSHOT_FILE, "w") as f:
+                json.dump(snap, f)
+        except Exception as e:
+            print(f"[!] Calibration snapshot write failed: {e}")
+        return snap
+
+    @classmethod
+    def load_snapshot(cls) -> bool:
+        """
+        Seed the calibrator from a persisted model when no local trade data exists.
+        Lets a cold container boot fully calibrated instead of reporting '—' for weeks.
+        Live records always take precedence once they exist.
+        """
+        if not os.path.exists(cls.SNAPSHOT_FILE):
+            return False
+        try:
+            with open(cls.SNAPSHOT_FILE, "r") as f:
+                snap = json.load(f)
+        except Exception:
+            return False
+        if not snap.get("score_bins"):
+            return False
+        snap["seeded_from_snapshot"] = True
+        cls._cache = {"epoch": time.time(), "model": snap}
+        print(f"[calib] seeded from snapshot: {snap['total_samples']} samples, "
+              f"{snap['status']}", flush=True)
+        return True
+
     @classmethod
     def report(cls) -> str:
         """Human-readable calibration state, for the Telegram digest and CLI."""

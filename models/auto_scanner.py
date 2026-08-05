@@ -492,6 +492,10 @@ def run_continuous_quant_hunter():
     try:
         resolved = ShadowTradeLedger.update_prices(price_map)
         if resolved:
+            try:
+                WinRateCalibrator.export_snapshot()
+            except Exception:
+                pass
             threading.Thread(target=GitStateSync.push_state,
                              args=("resolved trades",), daemon=True).start()
         for t in resolved:
@@ -973,6 +977,14 @@ def start_background_scanner_loop():
         GitStateSync.pull_on_startup()
     except Exception as e:
         print(f"[sync] startup pull error (continuing): {e}", flush=True)
+    # Seed the calibrator from the 2.2KB model snapshot so a cold container starts
+    # CALIBRATED instead of quoting "—" for weeks. Live records override it as soon
+    # as enough of them exist.
+    try:
+        if not ShadowTradeLedger.load_closed():
+            WinRateCalibrator.load_snapshot()
+    except Exception as e:
+        print(f"[calib] snapshot seed skipped: {e}", flush=True)
     while True:
         try:
             scanner_state["status"] = "SCANNING"

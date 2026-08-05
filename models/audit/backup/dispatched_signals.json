@@ -1,0 +1,62 @@
+[
+  {
+    "ticker": "ORDI/USDT",
+    "direction": "SHORT",
+    "entry_price": 3.377,
+    "stop_loss": 3.43,
+    "tp_ladder": [
+      3.324,
+      3.282,
+      3.239,
+      3.165
+    ],
+    "calibrated_win_rate": 0.7797,
+    "total_score": 71.13,
+    "recommendation": "\u2705 QUALIFIED",
+    "margin": 126.28,
+    "leverage": 25,
+    "relaxed_threshold": false,
+    "status": "DISPATCHED",
+    "time": "2026-08-05 05:23:37"
+  },
+  {
+    "ticker": "INTC/USDT",
+    "direction": "LONG",
+    "entry_price": 98.12,
+    "stop_loss": 97.2,
+    "tp_ladder": [
+      99.878,
+      100.15,
+      100.47,
+      101.0
+    ],
+    "calibrated_win_rate": 0.5077,
+    "total_score": 30.91,
+    "recommendation": "\u274c NO TRADE",
+    "margin": 123.97,
+    "leverage": 43,
+    "relaxed_threshold": false,
+    "status": "DISPATCHED",
+    "time": "2026-08-05 05:34:12"
+  },
+  {
+    "ticker": "INTC/USDT",
+    "direction": "LONG",
+    "entry_price": 98.39,
+    "stop_loss": 97.407,
+    "tp_ladder": [
+      99.879,
+      100.15,
+      100.47,
+      101.0
+    ],
+    "calibrated_win_rate": 0.4637,
+    "total_score": 41.73,
+    "recommendation": "\u274c NO TRADE",
+    "margin": 125.11,
+    "leverage": 40,
+    "relaxed_threshold": false,
+    "status": "DISPATCHED",
+    "time": "2026-08-05 05:47:56"
+  }
+]
