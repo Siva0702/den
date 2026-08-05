@@ -74,6 +74,8 @@ last_update_id = 0
 last_signal_time = time.time()
 last_digest_time = 0.0
 signal_timestamps = []          # rolling 24h dispatch history
+PROCESS_START = time.time()
+LAST_SCAN_EPOCH = [time.time()]
 
 scanner_state = {
     "status": "STARTING", "last_scan_time": "never", "total_scans": 0,
@@ -263,16 +265,17 @@ def poll_positioned_replies():
     global last_update_id
     while True:
         try:
-            if dispatched_message_ids:
-                replies, new_offset = telegram.poll_for_positioned_replies(
-                    list(dispatched_message_ids.keys()), last_update_id)
-                if new_offset > last_update_id:
-                    last_update_id = new_offset
+            # Poll ALL messages: commands are plain messages, not replies, so the
+            # old reply-filtered poll could never see them.
+            replies, new_offset = telegram.poll_all_messages(last_update_id)
+            if new_offset > last_update_id:
+                last_update_id = new_offset
+            if True:
                 for reply in replies:
                     text = reply.get("text", "").strip().lower()
                     rid = reply.get("reply_to_message_id")
                     # On-demand ledger report.
-                    if "shadow" in text and "ledger" in text:
+                    if ("shadow" in text and "ledger" in text) or text in ("/ledger", "/shadow", "ledger"):
                         try:
                             telegram.send_alert(build_ledger_report())
                         except Exception as e:
@@ -741,6 +744,7 @@ def run_continuous_quant_hunter():
     ScoreStabilityTracker.prune()
 
     cal_model = WinRateCalibrator.build_model()
+    LAST_SCAN_EPOCH[0] = time.time()
     scanner_state.update({
         "last_scan_time": time.strftime('%Y-%m-%d %H:%M:%S'),
         "total_scans": scanner_state["total_scans"] + 1,
@@ -915,7 +919,7 @@ def send_hunting_digest(candidates, prelim, session_name, label, ist_str,
         else:
             badge = f"○ {st['consecutive']}/{ScoreStabilityTracker.MIN_CONSECUTIVE}"
         lines.append(f"`{i:2d}.` {emoji} **{c['ticker']}** `{c['total_score']:.0f}` | {wr_s} | "
-                     f"@ `{format_price_dynamic(c.get('entry', 0))}` | {badge}")
+                     f"`{format_price_dynamic(c.get('entry', 0))}` | {badge}")
 
     shadow = ShadowTradeLedger.summary()
     cal = WinRateCalibrator.build_model()
@@ -1031,7 +1035,13 @@ def learning_reporter():
 
             hb = scanner_state.get("heartbeat", "never")
             scans = scanner_state.get("total_scans", 0)
-            stale = scans == 0 or scanner_state.get("last_scan_time") == "never"
+            # A first scan takes ~150s on Render. The reporter previously fired at
+            # T+120s and screamed STALE while the very first scan was still running —
+            # a false alarm on every restart. Only warn once enough time has passed
+            # that a scan should genuinely have finished.
+            uptime = time.time() - PROCESS_START
+            stale = (scans == 0 and uptime > 600) or (
+                scans > 0 and (time.time() - LAST_SCAN_EPOCH[0]) > 1800)
 
             recent = closed[-5:]
             rows = "\n".join(
@@ -1046,8 +1056,13 @@ def learning_reporter():
             else:
                 bins = f"_needs {WinRateCalibrator.MIN_SAMPLES_GLOBAL - model['total_samples']} more resolved trades_"
 
-            warn = ("\n🚨 **LEDGER STALE — scanner has not completed a scan.** "
-                    "Learning is NOT happening.\n" if stale else "")
+            if stale:
+                warn = (f"\n🚨 **LEDGER STALE** — no scan completed in "
+                        f"{uptime / 60:.0f} min. Learning is NOT happening.\n")
+            elif scans == 0:
+                warn = f"\n⏳ _First scan in progress ({uptime:.0f}s elapsed, ~150s typical)._\n"
+            else:
+                warn = ""
 
             msg = f"""🧠 **SELF-LEARNING REPORT** — {datetime.now(IST).strftime('%H:%M IST')}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━{warn}

@@ -67,6 +67,33 @@ class TelegramAlertBot:
             pass
         return []
 
+    def poll_all_messages(self, last_update_id: int = 0) -> tuple:
+        """
+        Return EVERY incoming message, not just replies to dispatched signals.
+
+        poll_for_positioned_replies() filters to messages whose reply_to_message_id is
+        in known_message_ids, so a plain typed command like "Shadow Ledger" was never
+        visible to the handler at all — and if no signal had ever been dispatched the
+        poll did not even run. Commands need the unfiltered stream.
+        """
+        updates = self.get_reply_updates(last_update_id)
+        msgs = []
+        new_last = last_update_id
+        for u in updates:
+            uid = u.get("update_id", 0)
+            if uid > new_last:
+                new_last = uid
+            m = u.get("message", {}) or {}
+            text = (m.get("text") or "").strip()
+            if not text:
+                continue
+            msgs.append({
+                "text": text,
+                "reply_to_message_id": (m.get("reply_to_message", {}) or {}).get("message_id"),
+                "update_id": uid,
+            })
+        return msgs, new_last
+
     def poll_for_positioned_replies(self, known_message_ids: list, last_update_id: int = 0) -> tuple:
         updates = self.get_reply_updates(last_update_id)
         replies = []
