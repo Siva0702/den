@@ -674,7 +674,7 @@ def run_continuous_quant_hunter():
             # and while the venue cap trims it, requesting absurd leverage means the
             # binding constraint is the exchange rather than our own risk view.
             raw_lev = max(min(int(round(1.0 / max(sl_pct * 2.5, 0.01))), 40), 5)
-            lev_meta = ExchangeLeverageEngine.get_calibrated_leverage(ticker, raw_lev)
+            lev_meta = ExchangeLeverageEngine.get_calibrated_leverage(ticker, raw_lev, sl_pct=sl_pct)
             leverage = lev_meta["recommended_leverage"]
 
             margin = round(kelly["dollars_at_risk"] / max(leverage * sl_pct, 0.0001), 2)
