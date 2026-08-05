@@ -799,6 +799,156 @@ class ShadowTradeLedger:
         return report
 
     @classmethod
+    def cohort_dashboard(cls, vetoed: bool) -> dict:
+        """
+        Deep breakdown of one cohort. Kept separate from cohort_report() because the
+        two answer different questions: that one compares cohorts, this one dissects a
+        single cohort to find WHERE inside it the edge lives or dies.
+        """
+        import statistics
+        rows = [t for t in cls.current_version_records() if bool(t.get("kelly_vetoed")) == vetoed]
+        if not rows:
+            return {"available": False, "n": 0}
+
+        def R(t):
+            e = float(t.get("entry", 0) or 0)
+            sl = float(t.get("stop_loss", 0) or 0)
+            slp = abs(e - sl) / e * 100 if e else 0
+            return (float(t.get("pnl_pct", 0) or 0) / slp) if slp else 0.0
+
+        Rs = [R(t) for t in rows]
+        w = sum(1 for t in rows if t.get("is_win") is True)
+        be = sum(1 for t in rows if t.get("is_breakeven"))
+        l = len(rows) - w - be
+
+        def bucket(field, fn=None):
+            out = {}
+            for t in rows:
+                k = fn(t) if fn else (t.get(field) or "UNKNOWN")
+                b = out.setdefault(str(k), {"n": 0, "w": 0, "R": 0.0})
+                b["n"] += 1
+                b["w"] += 1 if t.get("is_win") is True else 0
+                b["R"] += R(t)
+            for k, b in out.items():
+                b["acc"] = round(b["w"] / b["n"] * 100, 1)
+                b["R"] = round(b["R"], 2)
+                b["avg_R"] = round(b["R"] / b["n"], 3)
+            return dict(sorted(out.items(), key=lambda kv: -kv[1]["n"]))
+
+        oc = {}
+        for t in rows:
+            oc[t.get("outcome", "?")] = oc.get(t.get("outcome", "?"), 0) + 1
+
+        per_ticker = {}
+        for t in rows:
+            b = per_ticker.setdefault(t["ticker"], {"n": 0, "w": 0, "R": 0.0})
+            b["n"] += 1
+            b["w"] += 1 if t.get("is_win") is True else 0
+            b["R"] += R(t)
+        ranked = sorted(({"ticker": k, **v, "R": round(v["R"], 2)} for k, v in per_ticker.items()),
+                        key=lambda x: -x["R"])
+
+        stops = [abs(float(t["entry"]) - float(t["stop_loss"])) / float(t["entry"]) * 100
+                 for t in rows if float(t.get("entry", 0) or 0) > 0]
+        maes = [abs(float(t.get("mae_pct", 0) or 0)) for t in rows]
+        mfes = [abs(float(t.get("mfe_pct", 0) or 0)) for t in rows]
+        holds = [float(t.get("hold_hours", 0) or 0) for t in rows]
+
+        return {
+            "available": True,
+            "cohort": "KELLY-VETOED" if vetoed else "KELLY-FUNDED",
+            "n": len(rows), "wins": w, "breakeven": be, "losses": l,
+            "accuracy_pct": round(w / (w + l) * 100, 1) if (w + l) else 0.0,
+            "total_R": round(sum(Rs), 2),
+            "avg_R": round(sum(Rs) / len(Rs), 3),
+            "best_R": round(max(Rs), 2), "worst_R": round(min(Rs), 2),
+            "outcomes": oc,
+            "sl_then_tp": oc.get("SL_THEN_TP", 0),
+            "acc_if_stops_fixed": round((w + oc.get("SL_THEN_TP", 0)) / max(w + l, 1) * 100, 1),
+            "by_score_bin": bucket(None, lambda t: f"{int(float(t.get('raw_score', 0)) // 10 * 10)}-"
+                                                   f"{int(float(t.get('raw_score', 0)) // 10 * 10) + 10}"),
+            "by_regime": bucket("market_regime"),
+            "by_direction": bucket("direction"),
+            "best_tickers": ranked[:5],
+            "worst_tickers": list(reversed(ranked[-5:])),
+            "median_stop_pct": round(statistics.median(stops), 2) if stops else 0.0,
+            "median_mae_pct": round(statistics.median(maes), 2) if maes else 0.0,
+            "median_mfe_pct": round(statistics.median(mfes), 2) if mfes else 0.0,
+            "median_hold_h": round(statistics.median(holds), 2) if holds else 0.0,
+        }
+
+    @classmethod
+    def cohort_report(cls) -> dict:
+        """
+        Kelly-funded and Kelly-vetoed cohorts, scored separately.
+
+        The main board must reflect only what Kelly would actually FUND — mixing refused
+        setups into it reports performance the account would never have experienced.
+        The vetoed cohort is scored alongside it purely as a test of the veto itself.
+
+        SL_THEN_TP is broken out per cohort because it is the most diagnostic outcome
+        available: right direction, wrong stop. A vetoed trade that ends SL_THEN_TP is
+        evidence the refusal was about stop placement rather than a bad read, which is
+        fixable — and counting it as a plain loss would hide that.
+        """
+        rows = cls.current_version_records()
+
+        def score(cohort):
+            if not cohort:
+                return {"n": 0}
+            w = sum(1 for t in cohort if t.get("is_win") is True)
+            be = sum(1 for t in cohort if t.get("is_breakeven"))
+            l = len(cohort) - w - be
+            oc = {}
+            R = 0.0
+            for t in cohort:
+                oc[t.get("outcome", "?")] = oc.get(t.get("outcome", "?"), 0) + 1
+                e = float(t.get("entry", 0) or 0)
+                sl = float(t.get("stop_loss", 0) or 0)
+                slp = abs(e - sl) / e * 100 if e else 0
+                if slp:
+                    R += float(t.get("pnl_pct", 0) or 0) / slp
+            st = oc.get("SL_THEN_TP", 0)
+            return {
+                "n": len(cohort), "wins": w, "breakeven": be, "losses": l,
+                "accuracy_pct": round(w / (w + l) * 100, 1) if (w + l) else 0.0,
+                "total_R": round(R, 2), "avg_R": round(R / len(cohort), 3),
+                "sl_then_tp": st,
+                "sl_then_tp_pct": round(st / len(cohort) * 100, 1),
+                # Right direction, wrong stop — recoverable with better stop placement.
+                "recoverable_wins": st,
+                "accuracy_if_stops_fixed": round((w + st) / max(w + l, 1) * 100, 1),
+                "outcomes": oc,
+            }
+
+        funded = [t for t in rows if not t.get("kelly_vetoed")]
+        vetoed = [t for t in rows if t.get("kelly_vetoed")]
+        untagged = [t for t in rows if "kelly_vetoed" not in t]
+        f, v = score(funded), score(vetoed)
+        # The verdict must COMPARE the cohorts, not just check whether vetoed trades
+        # lost money. "Refused trades lost money" sounds like vindication even when the
+        # funded ones lost MORE per trade — which is the case that actually matters,
+        # because it means the win rate Kelly is fed does not rank setups correctly.
+        verdict = "INSUFFICIENT DATA"
+        if v.get("n", 0) >= 10 and f.get("n", 0) >= 5:
+            fa, va = f["avg_R"], v["avg_R"]
+            if fa > va + 0.15:
+                verdict = (f"KELLY IS SELECTING WELL — funded {fa:+.3f}R/trade vs "
+                           f"vetoed {va:+.3f}R/trade")
+            elif va > fa + 0.15:
+                verdict = (f"⚠️ KELLY IS SELECTING BACKWARDS — funded {fa:+.3f}R/trade is WORSE "
+                           f"than vetoed {va:+.3f}R/trade. The calibrated win rate feeding "
+                           f"Kelly does not rank setups correctly.")
+            else:
+                verdict = f"NO SEPARATION — funded {fa:+.3f}R vs vetoed {va:+.3f}R per trade"
+        elif v.get("n", 0) >= 10:
+            verdict = f"vetoed {v['avg_R']:+.3f}R/trade — too few funded trades to compare"
+        f["avg_R_per_trade"] = f.get("avg_R")
+        v["avg_R_per_trade"] = v.get("avg_R")
+        return {"kelly_funded": f, "kelly_vetoed": v, "untagged": len(untagged),
+                "veto_verdict": verdict}
+
+    @classmethod
     def backfill_kelly_veto(cls) -> dict:
         """
         Retro-classify historical records against the Kelly veto.
@@ -821,6 +971,16 @@ class ShadowTradeLedger:
                 e = float(t.get("entry", 0) or 0)
                 sl = float(t.get("stop_loss", 0) or 0)
                 lad = t.get("tp_ladder") or []
+                if wr is None:
+                    # No win rate was stored, but the calibrator can supply the rate for
+                    # this score bin. Derived, not invented — and flagged as such.
+                    try:
+                        from audit.calibration import WinRateCalibrator
+                        wr = WinRateCalibrator.calibrated_win_rate(
+                            float(t.get("raw_score", 0) or 0), {}).get("win_rate")
+                        t["kelly_wr_source"] = "derived_from_bin"
+                    except Exception:
+                        wr = None
                 if wr is None or e <= 0 or sl <= 0 or not lad:
                     skipped += 1
                     continue

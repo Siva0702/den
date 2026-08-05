@@ -262,6 +262,58 @@ def build_calendar_report(hours: int = 168) -> str:
             "for the affected asset; scores are graded down as events approach._\n" + "━" * 28)
 
 
+def build_cohort_dashboard(vetoed: bool) -> str:
+    """One dashboard per cohort. Separate reports because they answer different
+    questions: the funded board is what the account actually experienced, the vetoed
+    board is the running test of whether refusing those trades was correct."""
+    d = ShadowTradeLedger.cohort_dashboard(vetoed=vetoed)
+    if not d.get("available"):
+        return f"📊 **{'KELLY-VETOED' if vetoed else 'KELLY-FUNDED'}** — _no resolved trades yet_"
+
+    def tbl(bk, label):
+        if not bk:
+            return f"_{label}: no data_"
+        rows = "\n".join(
+            f"`{k:<9}` n`{v['n']:2d}` acc`{v['acc']:5.1f}%` `{v['avg_R']:+.3f}R`"
+            for k, v in list(bk.items())[:6])
+        return f"**{label}**\n{rows}"
+
+    tk = lambda rs, e: "\n".join(
+        f"{e} `{r['ticker']:<11}` `{r['R']:+6.2f}R` {r['w']}/{r['n']}" for r in rs) or "_none_"
+
+    exits = " · ".join(f"`{k} {v}`" for k, v in sorted(d["outcomes"].items(), key=lambda x: -x[1]))
+    icon = "🚫" if vetoed else "💰"
+    note = ("_Trades Kelly REFUSED to fund. Tracked on paper only — this is the running\n"
+            "test of whether the veto is correct._" if vetoed else
+            "_Trades Kelly WOULD have funded. This is the board that reflects the account._")
+
+    return f"""{icon} **{d['cohort']} DASHBOARD**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{note}
+
+`{d['n']}` trades │ `{d['wins']}`W `{d['breakeven']}`BE `{d['losses']}`L │ **acc `{d['accuracy_pct']}%`**
+Total `{d['total_R']:+.2f}R` │ avg `{d['avg_R']:+.3f}R` │ best `{d['best_R']:+.2f}R` │ worst `{d['worst_R']:+.2f}R`
+
+**EXITS**
+{exits}
+`SL→TP {d['sl_then_tp']}` — accuracy would be `{d['acc_if_stops_fixed']}%` with stops fixed
+
+{tbl(d['by_score_bin'], 'BY SCORE BIN')}
+
+{tbl(d['by_regime'], 'BY REGIME')}
+
+{tbl(d['by_direction'], 'BY DIRECTION')}
+
+🏆 **BEST**
+{tk(d['best_tickers'], '🟢')}
+
+💀 **WORST**
+{tk(d['worst_tickers'], '🔴')}
+
+📏 median stop `{d['median_stop_pct']}%` │ MAE `{d['median_mae_pct']}%` │ MFE `{d['median_mfe_pct']}%` │ hold `{d['median_hold_h']}h`
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
+
+
 def build_ledger_report() -> str:
     """Full on-demand ledger report, triggered by texting 'shadow ledger' to the bot."""
     s = ShadowTradeLedger.summary()
@@ -288,8 +340,10 @@ def build_ledger_report() -> str:
     eq = ShadowTradeLedger.equity_curve(ACCOUNT_BALANCE)
     da = ShadowTradeLedger.directional_accuracy()
     kv = ShadowTradeLedger.kelly_veto_report()
+    co = ShadowTradeLedger.cohort_report()
     vr = ShadowTradeLedger.version_report()
     kv = ShadowTradeLedger.kelly_veto_report()
+    co = ShadowTradeLedger.cohort_report()
     exits = " · ".join(f"`{k} {v}`" for k, v in [
         ("SL_HIT", s['sl_hit']), ("SL_THEN_TP", s['sl_then_tp']),
         ("BREAKEVEN", s.get('breakeven', 0)), ("TP1", s['tp1']),
@@ -307,7 +361,19 @@ def build_ledger_report() -> str:
 
 {exits}{stop_line}
 
-⚖️ **KELLY VETO TEST** — `{kv['vetoed_resolved']}` refused setups resolved\
+⚖️ **KELLY-FUNDED (the board)** `{co['kelly_funded'].get('n',0)}` trades │ \
+`{co['kelly_funded'].get('wins',0)}`W/`{co['kelly_funded'].get('losses',0)}`L │ \
+acc `{co['kelly_funded'].get('accuracy_pct',0)}%` │ `{co['kelly_funded'].get('total_R',0):+.2f}R`
+`SL→TP {co['kelly_funded'].get('sl_then_tp',0)}` — acc would be \
+`{co['kelly_funded'].get('accuracy_if_stops_fixed',0)}%` with stops fixed
+
+🚫 **KELLY-VETOED (test only)** `{co['kelly_vetoed'].get('n',0)}` trades │ \
+`{co['kelly_vetoed'].get('wins',0)}`W/`{co['kelly_vetoed'].get('losses',0)}`L │ \
+acc `{co['kelly_vetoed'].get('accuracy_pct',0)}%` │ `{co['kelly_vetoed'].get('total_R',0):+.2f}R` │ \
+`SL→TP {co['kelly_vetoed'].get('sl_then_tp',0)}`
+_{co['veto_verdict']}_
+
+⚖️ **LEGACY VETO TEST** — `{kv['vetoed_resolved']}` refused setups resolved\
 {f" │ `{kv['wins']}`W/`{kv['losses']}`L │ `{kv['total_R']:+.2f}R` │ _{kv['verdict']}_" if kv.get('available') else " │ _none yet_"}
 
 🧭 **DIRECTIONAL** — missed `{da['missed_setups']}` │ right `{da['missed_correct']}` │ wrong `{da['missed_wrong']}` │ `{da['missed_directional_pct'] if da['missed_directional_pct'] is not None else '—'}%`
@@ -342,6 +408,18 @@ def poll_positioned_replies():
                     text = reply.get("text", "").strip().lower()
                     rid = reply.get("reply_to_message_id")
                     # On-demand ledger report.
+                    if text in ("/kelly", "kelly") or ("kelly" in text and "board" in text):
+                        try:
+                            telegram.send_alert(build_cohort_dashboard(vetoed=False))
+                        except Exception as e:
+                            print(f"[!] Kelly dashboard error: {e}", flush=True)
+                        continue
+                    if text in ("/veto", "veto") or ("veto" in text and "board" in text):
+                        try:
+                            telegram.send_alert(build_cohort_dashboard(vetoed=True))
+                        except Exception as e:
+                            print(f"[!] Veto dashboard error: {e}", flush=True)
+                        continue
                     if "calendar" in text or text in ("/calendar", "/cal", "/events"):
                         try:
                             telegram.send_alert(build_calendar_report())
