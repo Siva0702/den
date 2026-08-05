@@ -37,7 +37,10 @@ class ShadowTradeLedger:
 
     # Measured: score bins 40-70 win 48-55% (coin flips); 70-80 wins 74.7% (Wilson LB).
     # Logging sub-70 setups floods calibration with noise that drowns the real signal.
-    SHADOW_FLOOR = 55.0
+    # Shadow trades cost nothing and carry no risk, so the floor exists only to keep
+    # calibration from drowning in noise — not to protect capital. 40 captures the
+    # weak setups too, which is exactly what tells us WHERE the score starts working.
+    SHADOW_FLOOR = 40.0
     MAX_HOLD_SECONDS = 36 * 3600
     SL_GRACE_SECONDS = 6 * 3600   # after a stop, keep watching to learn if it was too tight
     # Win is defined by the PLANNED exit rung, not the last rung on the ladder.

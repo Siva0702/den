@@ -48,7 +48,7 @@ HARD_SCORE_FLOOR = 78.0        # the user's standing rule: nothing below this is
 RELAXED_SCORE_FLOOR = 72.0     # engaged only after a long dry spell, and labelled as such
 DRY_SPELL_HOURS = 12.0         # how long with no signal before the relaxed tier engages
 MIN_CALIBRATED_WIN_RATE = 0.50 # once calibrated, refuse setups the data says are coin flips
-ENRICH_TOP_N = 20              # candidates promoted to enrichment (also the shadow-learning pool)
+ENRICH_TOP_N = 30              # candidates promoted to enrichment (also the shadow-learning pool)
 MAX_FETCH_WORKERS = 6
 MIN_RISK_USD = 10.0            # risk floor used while the engine has no measured edge
 # Structure-based targets expose setups where price has no room before the next

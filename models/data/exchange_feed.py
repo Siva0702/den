@@ -1,5 +1,6 @@
 # models/data/exchange_feed.py
 import threading
+import time
 import requests
 import pandas as pd
 import numpy as np
@@ -15,6 +16,14 @@ class BitunixWeexLiveFeed:
     # Binance returns HTTP 451, so every request was burning three timeouts before
     # landing on Bybit — 397s per scan on Render vs 50s locally. Remembering the
     # winner turns that back into one call.
+    # Higher timeframes barely move between 15-second scans: a 4h candle changes once
+    # every 4 hours, yet the scanner refetched all 87 of them every cycle. Caching by
+    # timeframe removes ~60% of all HTTP requests, which is the single biggest speed
+    # lever available — bigger than any per-request tuning.
+    _tf_cache = {}
+    _tf_lock = threading.Lock()
+    TF_TTL = {"5m": 60.0, "15m": 20.0, "1h": 600.0, "4h": 1800.0, "1d": 3600.0}
+
     _route = {}
     _route_lock = threading.Lock()
     TIMEOUT = 2.0
@@ -84,6 +93,15 @@ class BitunixWeexLiveFeed:
                      'low': float(k[3]) / divisor, 'close': float(k[4]) / divisor,
                      'volume': float(k[5]) * divisor} for k in reversed(kl)]
 
+        # Serve from the timeframe cache when still fresh.
+        ck = f"{symbol}:{interval}:{limit}"
+        ttl = cls.TF_TTL.get(interval, 30.0)
+        now_ts = time.time()
+        with cls._tf_lock:
+            hit = cls._tf_cache.get(ck)
+            if hit and hit[1] > now_ts:
+                return hit[0].copy(), True
+
         providers = [("binance", _binance), ("bybit", _bybit), ("bitget", _bitget)]
 
         # Sticky routing: try whatever worked for this symbol last time, first.
@@ -100,7 +118,12 @@ class BitunixWeexLiveFeed:
             if records:
                 with cls._route_lock:
                     cls._route[symbol] = name
-                return pd.DataFrame(records), True
+                df = pd.DataFrame(records)
+                with cls._tf_lock:
+                    cls._tf_cache[ck] = (df, now_ts + ttl)
+                    if len(cls._tf_cache) > 2000:
+                        cls._tf_cache = {k: v for k, v in cls._tf_cache.items() if v[1] > now_ts}
+                return df.copy(), True
 
         print(f"[!] All Exchange Feeds (Binance/Bybit/Bitget) failed or non-existent for symbol: {symbol}")
         return None, False
