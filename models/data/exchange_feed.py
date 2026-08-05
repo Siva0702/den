@@ -1,4 +1,5 @@
 # models/data/exchange_feed.py
+import threading
 import requests
 import pandas as pd
 import numpy as np
@@ -9,6 +10,14 @@ class BitunixWeexLiveFeed:
     Fetches real kline data from Binance Futures, with automatic failover to Bybit
     and Bitget REST APIs. Eliminates HTTP 451 (US IP geo-blocking) on Render Cloud!
     """
+
+    # Which exchange actually served each symbol last time. On a US datacenter IP
+    # Binance returns HTTP 451, so every request was burning three timeouts before
+    # landing on Bybit — 397s per scan on Render vs 50s locally. Remembering the
+    # winner turns that back into one call.
+    _route = {}
+    _route_lock = threading.Lock()
+    TIMEOUT = 2.0
 
     HEADERS = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -37,72 +46,61 @@ class BitunixWeexLiveFeed:
         bybit_int = {"15m": "15", "1h": "60", "4h": "240", "1d": "D"}.get(interval, "15")
         bitget_int = {"15m": "15m", "1h": "1H", "4h": "4H", "1d": "1D"}.get(interval, "15m")
 
-        # 1. Try Binance Futures API
-        try:
-            url_binance = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval={binance_int}&limit={limit}"
-            resp = requests.get(url_binance, headers=cls.HEADERS, timeout=3)
-            if resp.status_code == 200:
-                raw_klines = resp.json()
-                if isinstance(raw_klines, list) and len(raw_klines) > 0:
-                    records = []
-                    for k in raw_klines:
-                        records.append({
-                            'timestamp': int(k[0]),
-                            'open': float(k[1]) / divisor,
-                            'high': float(k[2]) / divisor,
-                            'low': float(k[3]) / divisor,
-                            'close': float(k[4]) / divisor,
-                            'volume': float(k[5]) * divisor
-                        })
-                    return pd.DataFrame(records), True
-        except Exception:
-            pass
+        def _binance():
+            url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval={binance_int}&limit={limit}"
+            r = requests.get(url, headers=cls.HEADERS, timeout=cls.TIMEOUT)
+            if r.status_code != 200:
+                return None
+            raw = r.json()
+            if not isinstance(raw, list) or not raw:
+                return None
+            return [{'timestamp': int(k[0]), 'open': float(k[1]) / divisor, 'high': float(k[2]) / divisor,
+                     'low': float(k[3]) / divisor, 'close': float(k[4]) / divisor,
+                     'volume': float(k[5]) * divisor} for k in raw]
 
-        # 2. Try Bybit Linear Futures API (No HTTP 451 US Geo-block)
-        try:
-            url_bybit = f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol}&interval={bybit_int}&limit={min(limit, 1000)}"
-            resp = requests.get(url_bybit, headers=cls.HEADERS, timeout=3)
-            if resp.status_code == 200:
-                data = resp.json()
-                klines = data.get("result", {}).get("list", [])
-                if klines and len(klines) > 0:
-                    records = []
-                    # Bybit returns newest first, so reverse to chronological
-                    for k in reversed(klines):
-                        records.append({
-                            'timestamp': int(k[0]),
-                            'open': float(k[1]) / divisor,
-                            'high': float(k[2]) / divisor,
-                            'low': float(k[3]) / divisor,
-                            'close': float(k[4]) / divisor,
-                            'volume': float(k[5]) * divisor
-                        })
-                    return pd.DataFrame(records), True
-        except Exception:
-            pass
+        def _bybit():
+            url = (f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol}"
+                   f"&interval={bybit_int}&limit={min(limit, 1000)}")
+            r = requests.get(url, headers=cls.HEADERS, timeout=cls.TIMEOUT)
+            if r.status_code != 200:
+                return None
+            kl = (r.json().get("result") or {}).get("list") or []
+            if not kl:
+                return None
+            return [{'timestamp': int(k[0]), 'open': float(k[1]) / divisor, 'high': float(k[2]) / divisor,
+                     'low': float(k[3]) / divisor, 'close': float(k[4]) / divisor,
+                     'volume': float(k[5]) * divisor} for k in reversed(kl)]
 
-        # 3. Try Bitget Futures Market API
-        try:
-            url_bitget = f"https://api.bitget.com/api/v2/mix/market/candles?symbol={symbol}&granularity={bitget_int}&limit={min(limit, 1000)}&productType=USDT-FUTURES"
-            resp = requests.get(url_bitget, headers=cls.HEADERS, timeout=3)
-            if resp.status_code == 200:
-                data = resp.json()
-                klines = data.get("data", [])
-                if klines and len(klines) > 0:
-                    records = []
-                    # Bitget also returns newest first
-                    for k in reversed(klines):
-                        records.append({
-                            'timestamp': int(k[0]),
-                            'open': float(k[1]) / divisor,
-                            'high': float(k[2]) / divisor,
-                            'low': float(k[3]) / divisor,
-                            'close': float(k[4]) / divisor,
-                            'volume': float(k[5]) * divisor
-                        })
-                    return pd.DataFrame(records), True
-        except Exception:
-            pass
+        def _bitget():
+            url = (f"https://api.bitget.com/api/v2/mix/market/candles?symbol={symbol}"
+                   f"&granularity={bitget_int}&limit={min(limit, 1000)}&productType=USDT-FUTURES")
+            r = requests.get(url, headers=cls.HEADERS, timeout=cls.TIMEOUT)
+            if r.status_code != 200:
+                return None
+            kl = r.json().get("data") or []
+            if not kl:
+                return None
+            return [{'timestamp': int(k[0]), 'open': float(k[1]) / divisor, 'high': float(k[2]) / divisor,
+                     'low': float(k[3]) / divisor, 'close': float(k[4]) / divisor,
+                     'volume': float(k[5]) * divisor} for k in reversed(kl)]
+
+        providers = [("binance", _binance), ("bybit", _bybit), ("bitget", _bitget)]
+
+        # Sticky routing: try whatever worked for this symbol last time, first.
+        with cls._route_lock:
+            preferred = cls._route.get(symbol)
+        if preferred:
+            providers.sort(key=lambda kv: kv[0] != preferred)
+
+        for name, fn in providers:
+            try:
+                records = fn()
+            except Exception:
+                records = None
+            if records:
+                with cls._route_lock:
+                    cls._route[symbol] = name
+                return pd.DataFrame(records), True
 
         print(f"[!] All Exchange Feeds (Binance/Bybit/Bitget) failed or non-existent for symbol: {symbol}")
         return None, False

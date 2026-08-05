@@ -59,7 +59,7 @@ class DerivativesIntelligence:
             if hit and hit[1] > now:
                 return hit[0]
         try:
-            resp = requests.get(url, headers=cls.HEADERS, timeout=5)
+            resp = requests.get(url, headers=cls.HEADERS, timeout=2.0)
             if resp.status_code != 200:
                 payload = None
             else:
@@ -69,7 +69,10 @@ class DerivativesIntelligence:
 
         with cls._lock:
             # Cache negatives briefly too, so dead symbols don't get retried every scan.
-            cls._cache[key] = (payload, now + (ttl if payload is not None else 120.0))
+            # Negative caching is long here on purpose: if Binance is geo-blocked
+            # (HTTP 451 from a US datacenter) it will be blocked for the whole session,
+            # and retrying 87 symbols x 5 endpoints every scan is pure latency.
+            cls._cache[key] = (payload, now + (ttl if payload is not None else 900.0))
         return payload
 
     # ------------------------------------------------------------------
