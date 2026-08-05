@@ -73,15 +73,13 @@ class UpstashRedisStateSync:
             cls._enabled = False
             return False
 
-        headers = {"Authorization": f"Bearer {token}"}
-        try:
-            r = requests.get(f"{url}/ping", headers=headers, timeout=5)
-            if r.status_code == 200 and r.json().get("result") == "PONG":
-                print("[redis-sync] ENABLED — Upstash Redis state persistence active (0 git churn)", flush=True)
-                cls._enabled = True
-                return True
-        except Exception as e:
-            print(f"[redis-sync] Connection test failed: {e}", flush=True)
+        ok, res = cls._redis_cmd(["PING"])
+        if ok and (res == "PONG" or res == "pong"):
+            print("[redis-sync] ENABLED — Upstash Redis state persistence active (0 git churn)", flush=True)
+            cls._enabled = True
+            return True
+        else:
+            print("[redis-sync] DISABLED — Redis PING failed", flush=True)
 
         cls._enabled = False
         return False
