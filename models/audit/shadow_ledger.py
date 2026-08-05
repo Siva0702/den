@@ -64,15 +64,36 @@ class ShadowTradeLedger:
             except Exception:
                 pass
 
+        try:
+            key_name = "shadow_open" if "shadow_open" in path else ("shadow_closed" if "shadow_closed" in path else None)
+            if key_name:
+                from audit.portable_store import PortableStateStore
+                PortableStateStore.save_state(key_name, payload)
+        except Exception:
+            pass
+
     @staticmethod
     def _load(path: str, default):
-        if not os.path.exists(path):
-            return default
-        try:
-            with open(path, "r") as f:
-                return json.load(f)
-        except Exception:
-            return default
+        key_name = "shadow_open" if "shadow_open" in path else ("shadow_closed" if "shadow_closed" in path else None)
+        if os.path.exists(path):
+            try:
+                with open(path, "r") as f:
+                    res = json.load(f)
+                    if res:
+                        return res
+            except Exception:
+                pass
+
+        if key_name:
+            try:
+                from audit.portable_store import PortableStateStore
+                db_data = PortableStateStore.load_state(key_name)
+                if db_data is not None:
+                    return db_data
+            except Exception:
+                pass
+
+        return default
 
     @classmethod
     def load_open(cls) -> list:
