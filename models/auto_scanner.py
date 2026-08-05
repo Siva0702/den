@@ -78,7 +78,7 @@ scanner_state = {
     "status": "STARTING", "last_scan_time": "never", "total_scans": 0,
     "total_signals_sent": 0, "last_signal": "none", "last_error": "none",
     "assets_in_universe": 0, "scan_duration_s": 0.0, "shadow_open": 0,
-    "calibration": "UNCALIBRATED",
+    "calibration": "UNCALIBRATED", "phase": "init", "heartbeat": "never",
 }
 
 
@@ -357,6 +357,8 @@ def run_continuous_quant_hunter():
     global last_signal_time, last_digest_time
 
     scan_start = time.time()
+    scanner_state["phase"] = "fetching"
+    scanner_state["heartbeat"] = time.strftime('%Y-%m-%d %H:%M:%S')
     universe = DynamicMarketUniverse.get_full_hunting_universe()
     scanner_state["assets_in_universe"] = len(universe)
 
@@ -370,12 +372,10 @@ def run_continuous_quant_hunter():
     reg_multiplier = reg_data.get("regulatory_multiplier", 1.0)
     reg_warning = reg_data.get("warning_msg", "")
 
-    # Rolling 30-day event calendar. Self-throttling: a clean pull holds for 6h, a
-    # degraded one retries next scan rather than serving a blank calendar.
-    try:
-        ScheduledEventCalendar.refresh()
-    except Exception as e:
-        print(f"[!] Calendar refresh error: {e}", flush=True)
+    # Calendar refresh runs in its own daemon thread (see calendar_refresher). A cold
+    # pull takes ~17s locally and far longer on a free-tier box, and it was blocking
+    # every scan before a single asset was fetched — the likely reason production sat
+    # at total_scans=0. Scans now use whatever the calendar last cached.
 
     # ---- Stage 0: concurrent multi-timeframe fetch for the whole universe ----
     frames = {}
@@ -389,6 +389,8 @@ def run_continuous_quant_hunter():
             except Exception as e:
                 print(f"[!] Fetch failed for {futures[fut]}: {type(e).__name__}", flush=True)
 
+    scanner_state["phase"] = f"fetched {len(frames)}/{len(universe)}"
+    scanner_state["heartbeat"] = time.strftime('%Y-%m-%d %H:%M:%S')
     btc_df = frames.get("BTC/USDT", {}).get("df_15m")
     # Feed OHLC, not just close, so excursions between scans are not lost.
     price_map = {t: {"close": float(f["df_15m"].iloc[-1]['close']),
@@ -440,6 +442,7 @@ def run_continuous_quant_hunter():
         print(f"[!] Shadow ledger update error: {e}", flush=True)
 
     # ---- Stage 1: cheap technical score across the whole universe -----------
+    scanner_state["phase"] = "screening"
     prelim = []
     prelim_atr = {}
     for ticker, f in frames.items():
@@ -574,6 +577,7 @@ def run_continuous_quant_hunter():
         except Exception as e:
             print(f"[!] Enrichment error {ticker}: {type(e).__name__}: {e}", flush=True)
 
+    scanner_state["phase"] = "shadow-logging"
     # ---- Shadow-log every qualifying candidate (this is the learning loop) ----
     shadow_opened = 0
     for c in candidates:
@@ -900,8 +904,84 @@ def start_background_scanner_loop():
         time.sleep(15)
 
 
+def calendar_refresher():
+    """Keeps the 30-day calendar warm without ever blocking a scan."""
+    while True:
+        try:
+            ScheduledEventCalendar.refresh()
+        except Exception as e:
+            print(f"[!] Calendar refresher: {e}", flush=True)
+        time.sleep(1800)
+
+
+def learning_reporter():
+    """
+    Hourly self-learning report to Telegram.
+
+    The ledger is only useful if it is visibly alive. This reports what the engine has
+    actually resolved and learned in the last hour, and — critically — shouts if the
+    ledger has gone STALE, because a silent learning loop is indistinguishable from a
+    working one until you look, and by then weeks are gone.
+    """
+    time.sleep(120)          # let the first scan land before reporting
+    last_resolved = 0
+    while True:
+        try:
+            summary = ShadowTradeLedger.summary()
+            closed = ShadowTradeLedger.load_closed()
+            model = WinRateCalibrator.build_model(force=True)
+            deriv = DerivativesIntelligence.history_stats()
+
+            new_since = summary["total"] - last_resolved
+            last_resolved = summary["total"]
+
+            hb = scanner_state.get("heartbeat", "never")
+            scans = scanner_state.get("total_scans", 0)
+            stale = scans == 0 or scanner_state.get("last_scan_time") == "never"
+
+            recent = closed[-5:]
+            rows = "\n".join(
+                f"`{t['ticker']:<11}` {'🟢' if t['is_win'] else '🔴'} {t['outcome']:<11} "
+                f"`{t['pnl_pct']:+.2f}%` score `{t['raw_score']:.0f}`"
+                for t in reversed(recent)) or "_none resolved yet_"
+
+            if model["status"] == "CALIBRATED":
+                bins = "\n".join(
+                    f"`{b['range']:>7}` {b['wins']:3d}/{b['n']:<4d} = `{b['raw_rate']*100:4.1f}%`"
+                    for _, b in sorted(model["score_bins"].items(), key=lambda kv: int(kv[0])))
+            else:
+                bins = f"_needs {WinRateCalibrator.MIN_SAMPLES_GLOBAL - model['total_samples']} more resolved trades_"
+
+            warn = ("\n🚨 **LEDGER STALE — scanner has not completed a scan.** "
+                    "Learning is NOT happening.\n" if stale else "")
+
+            msg = f"""🧠 **SELF-LEARNING REPORT** — {datetime.now(IST).strftime('%H:%M IST')}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━{warn}
+⚙️ Scans: `{scans}` | last: `{scanner_state.get('last_scan_time')}` | phase: `{scanner_state.get('phase', '-')}`
+
+👁️ **LEDGER:** `{summary['open']}` open, `{summary['total']}` resolved (`+{new_since}` this hour)
+📊 **Win rate:** `{summary['win_rate']}%` | SL-then-TP `{summary.get('sl_then_tp_pct', 0)}%`
+📉 Avg MAE `{summary.get('avg_mae_pct', 0)}%` | Avg MFE `{summary.get('avg_mfe_pct', 0)}%`
+
+🕐 **LAST RESOLVED:**
+{rows}
+
+🎯 **SCORE BINS (measured):**
+{bins}
+
+🔬 **DERIVATIVES HISTORY:** `{deriv['rows']}` rows, `{deriv['tickers']}` assets, `{deriv['span_hours']}h` span
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
+            telegram.send_alert(msg)
+            print(f"[✓] Learning report sent (resolved={summary['total']}, +{new_since})", flush=True)
+        except Exception as e:
+            print(f"[!] Learning reporter error: {e}", flush=True)
+        time.sleep(3600)
+
+
 if __name__ == "__main__":
     threading.Thread(target=start_background_scanner_loop, daemon=False).start()
     threading.Thread(target=self_ping_keep_alive, daemon=True).start()
     threading.Thread(target=poll_positioned_replies, daemon=True).start()
+    threading.Thread(target=calendar_refresher, daemon=True).start()
+    threading.Thread(target=learning_reporter, daemon=True).start()
     start_health_server()
