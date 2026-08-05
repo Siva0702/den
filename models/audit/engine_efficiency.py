@@ -37,6 +37,7 @@ class EngineEfficiencyTracker:
             "gross_losses_usd": 0.0,
             "profit_factor": 0.0,
             "per_ticker": {},
+            "total_breakeven": 0,
             "history": []
         }
 
@@ -51,9 +52,14 @@ class EngineEfficiencyTracker:
         """
         data = cls.load_efficiency_data()
 
+        # BREAKEVEN is now a real outcome (reached TP1, trailed back to entry). The old
+        # binary `if WIN else LOSS` booked every one of them as a LOSS, understating the
+        # win rate and inflating gross losses with trades that lost nothing.
         if outcome == "WIN":
             data["total_wins"] += 1
             data["gross_wins_usd"] = round(data.get("gross_wins_usd", 0.0) + pnl_usd, 2)
+        elif outcome in ("BREAKEVEN", "SCRATCH"):
+            data["total_breakeven"] = data.get("total_breakeven", 0) + 1
         else:
             data["total_losses"] += 1
             data["gross_losses_usd"] = round(data.get("gross_losses_usd", 0.0) + abs(pnl_usd), 2)
@@ -98,6 +104,11 @@ class EngineEfficiencyTracker:
         }
 
         data["history"].append(trade_record)
+        # History grew without bound — this file is synced to Redis on every resolution
+        # and would eventually breach the ~1MB REST request limit, silently killing
+        # persistence for the whole key.
+        if len(data["history"]) > 4000:
+            data["history"] = data["history"][-4000:]
 
         # Write to efficiency file
         os.makedirs("audit", exist_ok=True)
