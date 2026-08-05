@@ -80,6 +80,7 @@ class WalkForwardBacktester:
         against us, which is the only safe direction for it to be wrong.
         """
         mae = mfe = 0.0
+        won_at = None
         sl_touched = False
         first_tp_bar = None
         tp_hit = []
@@ -102,6 +103,11 @@ class WalkForwardBacktester:
                 reached = [j + 1 for j, tp in enumerate(ladder) if lo <= float(tp)]
 
             new_tp = [r for r in reached if r not in tp_hit]
+            # Once the planned exit is banked the position is closed at target; a later
+            # stop touch cannot turn it back into a loss.
+            if hit_sl and won_at is not None:
+                return {"outcome": "TP_THEN_SL", "exit": primary_tp, "is_win": True,
+                        "mae_pct": mae, "mfe_pct": mfe, "tp_hit": tp_hit, "bars_held": won_at}
             if hit_sl and not sl_touched:
                 sl_touched = True
                 # Pessimistic intrabar ordering: stop first unless a target was
@@ -126,10 +132,20 @@ class WalkForwardBacktester:
                 tp_hit.extend(new_tp)
                 if first_tp_bar is None:
                     first_tp_bar = i
+                # Do NOT return here. The trade is won, but we keep walking so every
+                # higher rung's reach rate is measured. Returning at TP1 made TP2-TP4
+                # look unreachable when in fact we had simply stopped observing.
                 if primary_tp is not None and max(tp_hit) >= cls.PRIMARY_TP_INDEX + 1:
-                    return {"outcome": "TP_FINAL", "exit": primary_tp, "is_win": True,
-                            "mae_pct": mae, "mfe_pct": mfe, "tp_hit": tp_hit, "bars_held": i + 1}
+                    if won_at is None:
+                        won_at = i + 1
+                    if max(tp_hit) >= len(ladder):
+                        return {"outcome": "TP_ALL_RUNGS", "exit": primary_tp, "is_win": True,
+                                "mae_pct": mae, "mfe_pct": mfe, "tp_hit": tp_hit,
+                                "bars_held": won_at}
 
+        if won_at is not None:
+            return {"outcome": "TP_PARTIAL", "exit": primary_tp, "is_win": True,
+                    "mae_pct": mae, "mfe_pct": mfe, "tp_hit": tp_hit, "bars_held": won_at}
         last = float(future.iloc[-1]['close'])
         return {"outcome": "TIMEOUT", "exit": last, "is_win": False,
                 "mae_pct": mae, "mfe_pct": mfe, "tp_hit": tp_hit, "bars_held": len(future)}

@@ -253,6 +253,34 @@ class ShadowTradeLedger:
                     or t["sl_touched_epoch"] <= t["first_tp_epoch"]
                 )
 
+                # Once the planned exit is banked the trade is a WIN, but we keep
+                # observing so the reach rate of every higher rung is measured. Closing
+                # at TP1 meant TP2-TP4 could never be recorded, which made the whole
+                # "which target should I take" analysis worthless — the higher rungs
+                # showed near-zero reach purely because we stopped looking.
+                primary_idx = min(cls.PRIMARY_TP_INDEX, len(ladder) - 1) if ladder else 0
+                primary_hit = bool(t["tp_levels_hit"]) and max(t["tp_levels_hit"]) >= primary_idx + 1
+                if primary_hit and not t.get("win_locked"):
+                    t["win_locked"] = True
+                    t["win_locked_epoch"] = now
+                    t["exit_price_at_target"] = float(ladder[primary_idx]) if ladder else close
+
+                if t.get("win_locked"):
+                    top_rung = len(ladder) if ladder else 1
+                    all_done = bool(t["tp_levels_hit"]) and max(t["tp_levels_hit"]) >= top_rung
+                    exit_px = t.get("exit_price_at_target", close)
+                    if all_done:
+                        resolved.append(cls._resolve(t, exit_px, "TP_ALL_RUNGS"))
+                    elif sl_touch:
+                        # Stop tagged after the target was banked — still a win, the
+                        # position was already closed at TP.
+                        resolved.append(cls._resolve(t, exit_px, "TP_THEN_SL"))
+                    elif now - t.get("opened_epoch", now) > cls.MAX_HOLD_SECONDS:
+                        resolved.append(cls._resolve(t, exit_px, "TP_PARTIAL"))
+                    else:
+                        still_open.append(t)
+                    continue
+
                 if sl_first:
                     # Position would already be flat. Keep observing for a grace window
                     # purely to learn whether the stop was simply too tight.
@@ -295,7 +323,10 @@ class ShadowTradeLedger:
 
         # A win is a clean win. SL_THEN_TP is explicitly NOT counted as a win, because
         # in live trading the stop would have closed the position before the recovery.
-        is_win = outcome in ("TP_FINAL",) or (outcome == "PARTIAL_THEN_SL" and pnl_pct > 0)
+        # A win is defined by reaching the PLANNED exit rung before the stop. The
+        # trade keeps being observed past that point purely to measure how far price
+        # ran, which never changes whether it was a win.
+        is_win = outcome in ("TP_FINAL", "TP_ALL_RUNGS", "TP_THEN_SL", "TP_PARTIAL")
 
         trade = dict(trade)
         trade.update({
@@ -307,6 +338,7 @@ class ShadowTradeLedger:
             "pnl_pct": round(pnl_pct, 4),
             "hold_hours": round((time.time() - trade.get("opened_epoch", time.time())) / 3600.0, 2),
             "tp_levels_hit_count": len(trade.get("tp_levels_hit", [])),
+            "max_rung_reached": max(trade.get("tp_levels_hit") or [0]),
         })
         trade["post_mortem"] = cls.post_mortem(trade)
         return trade
