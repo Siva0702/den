@@ -47,7 +47,7 @@ HARD_SCORE_FLOOR = 78.0        # the user's standing rule: nothing below this is
 RELAXED_SCORE_FLOOR = 72.0     # engaged only after a long dry spell, and labelled as such
 DRY_SPELL_HOURS = 12.0         # how long with no signal before the relaxed tier engages
 MIN_CALIBRATED_WIN_RATE = 0.50 # once calibrated, refuse setups the data says are coin flips
-ENRICH_TOP_N = 12              # candidates promoted to expensive derivatives/news enrichment
+ENRICH_TOP_N = 20              # candidates promoted to enrichment (also the shadow-learning pool)
 MAX_FETCH_WORKERS = 6
 MIN_RISK_USD = 10.0            # risk floor used while the engine has no measured edge
 # Structure-based targets expose setups where price has no room before the next
@@ -514,14 +514,20 @@ def run_continuous_quant_hunter():
             primary_tp = tp_ladder[0]          # TP1 is the planned exit — measured as the only profitable rung
             tp_pct = abs(primary_tp - entry) / entry
             rr = tp_pct / sl_pct if sl_pct else 0.0
-            if rr < MIN_REWARD_RISK:
-                # No room to the next pool — the structure does not pay for the risk.
-                continue
+            # NOTE: the R:R gate deliberately does NOT live here. It is a DISPATCH
+            # criterion, and applying it during candidate construction silently starved
+            # the shadow ledger — every setup that cleared the score floor was dropped
+            # before it could be logged, so the engine stopped learning entirely.
+            # Low-R:R setups are still recorded as virtual trades; R:R is carried in the
+            # feature snapshot so calibration can measure whether 1.2 is the right cut
+            # instead of us asserting it.
 
             # ---- Calibrated probability, not score/100 ----
             features = dict(signal.get("feature_snapshot", {}))
             features["session"] = session_name
             features["factors_passed"] = signal.get("factors_passed", [])
+            features["reward_risk"] = round(rr, 3)
+            features["sl_pct"] = round(sl_pct, 5)
             cal = WinRateCalibrator.calibrated_win_rate(score, features)
             win_rate = cal["win_rate"]          # None while uncalibrated — never faked
 
@@ -629,6 +635,12 @@ def run_continuous_quant_hunter():
             # Gate 3b: never enter an unresolved event spike.
             if (best.get("event_vol") or {}).get("action") == "NO_ENTRY":
                 print(f"[gate] {best['ticker']} blocked — {best['event_vol']['reason']}", flush=True)
+                continue
+
+            # Gate 3c: structure must pay for the risk taken.
+            if best["rr"] < MIN_REWARD_RISK:
+                print(f"[gate] {best['ticker']} blocked — R:R {best['rr']:.2f} "
+                      f"below {MIN_REWARD_RISK} (no room to next pool)", flush=True)
                 continue
 
             # Gate 4: do not enter directly in front of an unswept stop pool.
