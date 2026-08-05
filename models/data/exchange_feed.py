@@ -22,7 +22,13 @@ class BitunixWeexLiveFeed:
     # lever available — bigger than any per-request tuning.
     _tf_cache = {}
     _tf_lock = threading.Lock()
-    TF_TTL = {"5m": 60.0, "15m": 20.0, "1h": 600.0, "4h": 1800.0, "1d": 3600.0}
+    # Seconds per candle. Cache entries expire at the next CANDLE CLOSE rather than
+    # on a fixed timer: a 15m candle is immutable between :00 and :15, so refetching it
+    # every 20 seconds returned identical bytes 45 times per candle. Expiring on the
+    # boundary means exactly one fetch per candle per asset — strictly less work for
+    # strictly the same information.
+    TF_SECONDS = {"5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
+    CANDLE_BUFFER = 4.0        # let the exchange finalise the close before refetching
 
     _route = {}
     _route_lock = threading.Lock()
@@ -95,8 +101,10 @@ class BitunixWeexLiveFeed:
 
         # Serve from the timeframe cache when still fresh.
         ck = f"{symbol}:{interval}:{limit}"
-        ttl = cls.TF_TTL.get(interval, 30.0)
         now_ts = time.time()
+        # Expire precisely when this timeframe's next candle closes.
+        span = cls.TF_SECONDS.get(interval, 900)
+        expiry = (int(now_ts // span) + 1) * span + cls.CANDLE_BUFFER
         with cls._tf_lock:
             hit = cls._tf_cache.get(ck)
             if hit and hit[1] > now_ts:
@@ -120,7 +128,7 @@ class BitunixWeexLiveFeed:
                     cls._route[symbol] = name
                 df = pd.DataFrame(records)
                 with cls._tf_lock:
-                    cls._tf_cache[ck] = (df, now_ts + ttl)
+                    cls._tf_cache[ck] = (df, expiry)
                     if len(cls._tf_cache) > 2000:
                         cls._tf_cache = {k: v for k, v in cls._tf_cache.items() if v[1] > now_ts}
                 return df.copy(), True

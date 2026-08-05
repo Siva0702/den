@@ -75,6 +75,7 @@ last_signal_time = time.time()
 last_digest_time = 0.0
 signal_timestamps = []          # rolling 24h dispatch history
 PROCESS_START = time.time()
+PRELIM_CACHE = {}               # ticker -> (candle_timestamp, signal)
 LAST_SCAN_EPOCH = [time.time()]
 
 scanner_state = {
@@ -553,16 +554,28 @@ def run_continuous_quant_hunter():
 
     # ---- Stage 1: cheap technical score across the whole universe -----------
     scanner_state["phase"] = "screening"
+    # CANDLE-GATED RESCORING. Scoring is deterministic in the bars it is given, so an
+    # asset whose 15m candle has not closed since the last scan will produce exactly the
+    # score it produced before. Reusing it costs nothing and skips the whole pillar
+    # stack for most assets on most scans.
     prelim = []
     prelim_atr = {}
+    reused = 0
     for ticker, f in frames.items():
         if ticker in active_tickers:
             continue
         try:
-            signal = SureShotConfluenceEngine.evaluate_setup(
-                ohlcv_15m=f["df_15m"], ohlcv_1h=f["df_1h"], ohlcv_4h=f["df_4h"], ohlcv_1d=f["df_1d"],
-                btc_df=btc_df, ticker=ticker, efficiency_history=efficiency_data,
-                derivatives=None, news=None, regulatory_multiplier=reg_multiplier)
+            bar_ts = int(f["df_15m"].iloc[-1].get("timestamp", 0) or 0)
+            cached = PRELIM_CACHE.get(ticker)
+            if cached and cached[0] == bar_ts:
+                signal = cached[1]
+                reused += 1
+            else:
+                signal = SureShotConfluenceEngine.evaluate_setup(
+                    ohlcv_15m=f["df_15m"], ohlcv_1h=f["df_1h"], ohlcv_4h=f["df_4h"], ohlcv_1d=f["df_1d"],
+                    btc_df=btc_df, ticker=ticker, efficiency_history=efficiency_data,
+                    derivatives=None, news=None, regulatory_multiplier=reg_multiplier)
+                PRELIM_CACHE[ticker] = (bar_ts, signal)
             prelim_atr[ticker] = signal.get("atr", 0.0)
             if signal.get("direction") != "NONE":
                 prelim.append((ticker, f, signal))
@@ -800,7 +813,7 @@ def run_continuous_quant_hunter():
     })
     print(f"[{time.strftime('%H:%M:%S')}] Scan #{scanner_state['total_scans']} | "
           f"{len(frames)}/{len(universe)} fed | {len(candidates)} candidates | "
-          f"{shadow_opened} shadow opened | {signals_dispatched} dispatched | "
+          f"{shadow_opened} shadow | {reused} reused | {signals_dispatched} dispatched | "
           f"{scanner_state['scan_duration_s']}s | floor={active_floor}", flush=True)
 
 
@@ -940,7 +953,12 @@ def send_hunting_digest(candidates, prelim, session_name, label, ist_str,
                      "calibrated_win_rate": None, "entry": s.get("entry_price", 0)})
         seen.add(t)
 
-    pool = sorted(pool, key=lambda x: x["total_score"], reverse=True)[:20]
+    def _stab_rank(c):
+        st = ScoreStabilityTracker.evaluate(c["ticker"], c["direction"], active_floor)
+        # stable > forming > noisy/fading; score breaks ties inside each tier.
+        tier = 0 if st["stable"] else (1 if st["samples"] < ScoreStabilityTracker.MIN_CONSECUTIVE else 2)
+        return (tier, -c["total_score"])
+    pool = sorted(pool, key=_stab_rank)[:20]
 
     lines = []
     for i, c in enumerate(pool, 1):

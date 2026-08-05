@@ -588,6 +588,16 @@ class ShadowTradeLedger:
         rows = [{"ticker": k, "trades": v["n"], "wins": v["w"],
                  "win_rate": round(v["w"] / v["n"] * 100, 1),
                  "net_pct": round(v["pnl"], 2)} for k, v in by_ticker.items()]
+        # Best and worst must be DISJOINT and sign-correct. Slicing rows[:10] and
+        # rows[-10:] overlaps whenever fewer than 2*top_n tickers have traded, which is
+        # why a +0.36% winner was appearing under "WORST 10" and losers were padding
+        # out "TOP 10". Split on the sign instead of on position.
         rows.sort(key=lambda r: r["net_pct"], reverse=True)
-        return {"best": rows[:top_n], "worst": list(reversed(rows[-top_n:])) if rows else [],
-                "tickers_traded": len(rows)}
+        winners = [r for r in rows if r["net_pct"] > 0]
+        losers = [r for r in rows if r["net_pct"] < 0]
+        return {
+            "best": winners[:top_n],                                   # most profitable first
+            "worst": sorted(losers, key=lambda r: r["net_pct"])[:top_n],  # most negative first
+            "flat": len(rows) - len(winners) - len(losers),
+            "tickers_traded": len(rows),
+        }

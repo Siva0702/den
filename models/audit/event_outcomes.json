@@ -1,0 +1,27 @@
+{
+  "tracking": [
+    {
+      "event_id": "UBER/USDT|UBER earnings (time-pre-market)|2026-08-05T11:00:00+00:00",
+      "ticker": "UBER/USDT",
+      "asset_class": "Big Tech / AI",
+      "event_kind": "EARNINGS",
+      "event_title": "UBER earnings (time-pre-market)",
+      "tier": "CRITICAL",
+      "event_epoch": 1785927600.6825979,
+      "price_before": 74.41,
+      "samples": {}
+    },
+    {
+      "event_id": "DIS/USDT|DIS earnings (time-pre-market)|2026-08-05T11:00:00+00:00",
+      "ticker": "DIS/USDT",
+      "asset_class": "Consumer / Retail",
+      "event_kind": "EARNINGS",
+      "event_title": "DIS earnings (time-pre-market)",
+      "tier": "CRITICAL",
+      "event_epoch": 1785927602.544687,
+      "price_before": 99.47,
+      "samples": {}
+    }
+  ],
+  "resolved": []
+}
