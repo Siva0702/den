@@ -519,19 +519,28 @@ def run_continuous_quant_hunter():
     # cost is bounded by the size of the book rather than the universe.
     # (Binance USD-M has no 1s interval — 1m is the finest available for futures.)
     try:
-        open_tickers = {t.get("ticker") for t in ShadowTradeLedger.load_open()}
-        for tk in open_tickers:
-            if tk not in frames:
-                continue
+        open_tickers = [t.get("ticker") for t in ShadowTradeLedger.load_open()
+                        if t.get("ticker") in frames]
+
+        def _m1(tk):
             m1, real = BitunixWeexLiveFeed.get_exchange_ohlcv(tk, 0, "1m", limit=30)
             if m1 is None or not real or len(m1) < 2:
-                continue
+                return None
             recent = m1.iloc[-20:]
-            price_map[tk] = {
-                "close": float(m1.iloc[-1]['close']),
-                "high": float(recent['high'].max()),
-                "low": float(recent['low'].min()),
-            }
+            return tk, {"close": float(m1.iloc[-1]['close']),
+                        "high": float(recent['high'].max()),
+                        "low": float(recent['low'].min())}
+
+        # Sequentially this was 27 round-trips and 5.6s — 47% of the entire warm scan,
+        # spent waiting on the network rather than computing anything.
+        with ThreadPoolExecutor(max_workers=MAX_FETCH_WORKERS) as pool:
+            for fut in as_completed([pool.submit(_m1, tk) for tk in open_tickers]):
+                try:
+                    res = fut.result()
+                except Exception:
+                    res = None
+                if res:
+                    price_map[res[0]] = res[1]
     except Exception as e:
         print(f"[!] 1m resolution refresh failed: {e}", flush=True)
 
