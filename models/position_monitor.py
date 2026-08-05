@@ -24,7 +24,26 @@ class ActivePositionMonitor:
     def __init__(self, bot_token: str, chat_id: str):
         self.bot_token = bot_token or "8847828896:AAFcTqjJGe6VN6mbPHcB1QTlvkpQxhb5ntI"
         self.chat_id = chat_id or "7347569157"
-        self.notified_milestones = {}
+        self.notified_milestones = self.load_milestones()
+
+    def load_milestones(self) -> dict:
+        path = "portfolio/notified_milestones.json"
+        if os.path.exists(path):
+            try:
+                with open(path, "r") as f:
+                    return json.load(f)
+            except Exception:
+                return {}
+        return {}
+
+    def save_milestones(self):
+        os.makedirs("portfolio", exist_ok=True)
+        path = "portfolio/notified_milestones.json"
+        try:
+            with open(path, "w") as f:
+                json.dump(self.notified_milestones, f, indent=2)
+        except Exception as e:
+            print(f"[!] Error saving notified milestones: {e}")
 
     def load_positions(self) -> list:
         if os.path.exists(POSITIONS_FILE):
@@ -40,6 +59,7 @@ class ActivePositionMonitor:
         try:
             with open(POSITIONS_FILE, "w") as f:
                 json.dump(positions, f, indent=2)
+            self.save_milestones()
         except Exception as e:
             print(f"[!] Error saving active positions: {e}")
 
