@@ -27,7 +27,7 @@ class BitunixWeexLiveFeed:
     # every 20 seconds returned identical bytes 45 times per candle. Expiring on the
     # boundary means exactly one fetch per candle per asset — strictly less work for
     # strictly the same information.
-    TF_SECONDS = {"5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
+    TF_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
     CANDLE_BUFFER = 4.0        # let the exchange finalise the close before refetching
 
     _route = {}

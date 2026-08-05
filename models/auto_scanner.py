@@ -510,6 +510,31 @@ def run_continuous_quant_hunter():
                      "low": float(f["df_15m"].iloc[-1]['low'])}
                  for t, f in frames.items()}
 
+    # 1-MINUTE RESOLUTION FOR OPEN SHADOW TRADES.
+    # The live ledger was resolving against the CURRENT, still-forming 15m candle, while
+    # replayed records used 1m bars — so a live TP1_HIT and a replayed TP1_HIT were not
+    # the same measurement, and version stamping could not detect the difference. Worse,
+    # a partial 15m candle understates its own extremes, so wicks through a stop between
+    # scans were invisible. Only tickers with an OPEN shadow trade are refetched, so the
+    # cost is bounded by the size of the book rather than the universe.
+    # (Binance USD-M has no 1s interval — 1m is the finest available for futures.)
+    try:
+        open_tickers = {t.get("ticker") for t in ShadowTradeLedger.load_open()}
+        for tk in open_tickers:
+            if tk not in frames:
+                continue
+            m1, real = BitunixWeexLiveFeed.get_exchange_ohlcv(tk, 0, "1m", limit=30)
+            if m1 is None or not real or len(m1) < 2:
+                continue
+            recent = m1.iloc[-20:]
+            price_map[tk] = {
+                "close": float(m1.iloc[-1]['close']),
+                "high": float(recent['high'].max()),
+                "low": float(recent['low'].min()),
+            }
+    except Exception as e:
+        print(f"[!] 1m resolution refresh failed: {e}", flush=True)
+
     # ---- CRITICAL FIX: monitor open positions FIRST -------------------------
     # v38 skipped any ticker already holding a position before it ever reached the
     # monitor call, so TP/SL was never checked and no outcome was ever recorded.

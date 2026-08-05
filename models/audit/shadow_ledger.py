@@ -67,7 +67,7 @@ class ShadowTradeLedger:
     #   v1  resolve at final ladder rung
     #   v2  resolve at TP1 (planned exit), trail sits ON the rung just hit
     #   v3  trail sits ONE RUNG BEHIND; TP1 -> breakeven, TP2 -> TP1; BREAKEVEN is neutral
-    LOGIC_VERSION = "v3-trail-one-behind"
+    LOGIC_VERSION = "v4-trail-one-behind-1m"
 
     _lock = threading.Lock()
     _last_open_candle = {}      # "TICKER|DIR" -> candle timestamp of last open
