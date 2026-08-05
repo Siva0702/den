@@ -163,10 +163,19 @@ class UpstashRedisStateSync:
             ok, val = cls._redis_cmd(["GET", redis_key])
             if ok and val:
                 try:
-                    os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-                    with open(abs_path, "w") as f:
-                        f.write(val if isinstance(val, str) else json.dumps(val))
-                    restored_count += 1
+                    val_str = val if isinstance(val, str) else json.dumps(val)
+                    try:
+                        parsed = json.loads(val_str) if isinstance(val_str, str) else val_str
+                    except Exception:
+                        parsed = val_str
+
+                    # SAFETY GUARD: Only restore if pulled data is non-empty! Never wipe local data with [] or {}.
+                    if parsed and len(parsed) > 0:
+                        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+                        with open(abs_path, "w") as f:
+                            f.write(val_str if isinstance(val_str, str) else json.dumps(val_str, indent=2))
+                        restored_count += 1
+                        print(f"[redis-sync] Restored {rel_path} ({len(parsed)} items)", flush=True)
                 except Exception as e:
                     print(f"[redis-sync] Error writing {rel_path}: {e}", flush=True)
 
