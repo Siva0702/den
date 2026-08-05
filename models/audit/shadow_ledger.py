@@ -50,6 +50,9 @@ class ShadowTradeLedger:
     # Resolving on TP4 booked trades that banked TP1+TP2 as losses.
     PRIMARY_TP_INDEX = 0
     MAX_CLOSED_RECORDS = 8000
+    # Two identical records inside this window are one setup logged twice. Beyond it,
+    # the same level recurring is a separate opportunity and must be kept.
+    DEDUP_WINDOW_SECONDS = 4 * 3600
 
     _lock = threading.Lock()
     _last_open_candle = {}      # "TICKER|DIR" -> candle timestamp of last open
@@ -352,6 +355,17 @@ class ShadowTradeLedger:
 
                 if trail_idx > 0:
                     trail_stop = float(ladder[trail_idx - 1])
+                    # The trail ARMS on the next bar, never on the bar that tagged the
+                    # rung. Price reaches TP1 from below, so that bar's low sits under
+                    # TP1 by definition — checking the trail immediately closed every
+                    # trade the instant it first touched target, which is why nothing
+                    # ever ran to TP2+. A rung must be held for one bar before its level
+                    # can stop us out.
+                    armed_at = t.get("trail_armed_idx")
+                    if armed_at != trail_idx:
+                        t["trail_armed_idx"] = trail_idx
+                        still_open.append(t)
+                        continue
                     stop_hit = (low <= trail_stop) if direction == "LONG" else (high >= trail_stop)
                     if trail_idx >= len(ladder):
                         # Top rung reached — nothing left to run for.
@@ -653,27 +667,37 @@ class ShadowTradeLedger:
         (ticker, direction, entry, outcome) tuple. Those are the SAME trade recorded N
         times, and each copy adds a phantom win to accuracy and a phantom R to equity.
         """
-        closed = cls.load_closed()
+        # A setup is LIVE from entry until TP4 or the trail stops it out, so any
+        # re-detection inside that window is the same setup, not a new trade. Two
+        # records only collapse when they share ticker+direction+entry+outcome AND land
+        # inside DEDUP_WINDOW_SECONDS of each other. The same entry price recurring
+        # hours later is a genuinely separate opportunity and is preserved — otherwise
+        # a legitimate re-entry at a level that worked twice would be silently erased.
+        closed = sorted(cls.load_closed(), key=lambda t: t.get("closed_epoch", 0) or 0)
         seen = {}
         dupes = []
         for t in closed:
             k = (t.get("ticker"), t.get("direction"), round(float(t.get("entry", 0) or 0), 10),
                  t.get("outcome"))
-            if k in seen:
+            ts = float(t.get("closed_epoch", 0) or 0)
+            prior = seen.get(k)
+            if prior is not None and abs(ts - float(prior.get("closed_epoch", 0) or 0)) <= cls.DEDUP_WINDOW_SECONDS:
                 dupes.append(t)
             else:
                 seen[k] = t
 
         report = {
             "total_records": len(closed),
-            "unique_trades": len(seen),
+            "unique_trades": len(closed) - len(dupes),   # records KEPT, not distinct keys
             "duplicates": len(dupes),
             "duplicate_pct": round(len(dupes) / len(closed) * 100, 1) if closed else 0.0,
             "affected_tickers": sorted({d.get("ticker") for d in dupes}),
             "clean": not dupes,
         }
+        # Keep every record that was not flagged as a within-window duplicate.
         if repair and dupes:
-            deduped = list(seen.values())
+            dupe_ids = {id(d) for d in dupes}
+            deduped = [t for t in closed if id(t) not in dupe_ids]
             deduped.sort(key=lambda t: t.get("closed_epoch", 0) or 0)
             cls._atomic_write(SHADOW_CLOSED_FILE, deduped)
             report["repaired"] = True

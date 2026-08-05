@@ -547,6 +547,7 @@ def run_continuous_quant_hunter():
         resolved = ShadowTradeLedger.update_prices(price_map)
         if resolved:
             try:
+                ShadowTradeLedger.audit_integrity(repair=True)
                 WinRateCalibrator.export_snapshot()
             except Exception:
                 pass
@@ -1049,6 +1050,14 @@ def start_background_scanner_loop():
     # Seed the calibrator from the 2.2KB model snapshot so a cold container starts
     # CALIBRATED instead of quoting "—" for weeks. Live records override it as soon
     # as enough of them exist.
+    # Audit the restored ledger BEFORE anything reads it. A corrupted pull would
+    # otherwise poison calibration for the whole session.
+    try:
+        boot_audit = ShadowTradeLedger.audit_integrity(repair=True)
+        print(f"[ledger] boot audit: {boot_audit['unique_trades']} unique of "
+              f"{boot_audit['total_records']} records, {boot_audit['duplicates']} purged", flush=True)
+    except Exception as e:
+        print(f"[ledger] boot audit failed: {e}", flush=True)
     try:
         if not ShadowTradeLedger.load_closed():
             WinRateCalibrator.load_snapshot()
