@@ -73,14 +73,16 @@ class UpstashRedisStateSync:
             cls._enabled = False
             return False
 
-        ok, res = cls._redis_cmd(["PING"])
-        if ok and (res == "PONG" or res == "pong"):
-            print("[redis-sync] ENABLED — Upstash Redis state persistence active (0 git churn)", flush=True)
-            cls._enabled = True
-            return True
-        else:
-            print("[redis-sync] DISABLED — Redis PING failed", flush=True)
+        # Try POST first, fallback to GET if needed
+        for attempt in range(2):
+            ok, res = cls._redis_cmd(["PING"])
+            if ok and (res == "PONG" or res == "pong" or str(res).upper() == "PONG"):
+                print("[redis-sync] ENABLED — Upstash Redis state persistence active (0 git churn)", flush=True)
+                cls._enabled = True
+                return True
+            time.sleep(1)
 
+        print("[redis-sync] DISABLED — Redis PING failed after retries", flush=True)
         cls._enabled = False
         return False
 
@@ -90,14 +92,29 @@ class UpstashRedisStateSync:
         token = os.getenv("UPSTASH_REDIS_REST_TOKEN", "").strip()
         if not url or not token:
             return False, None
-        headers = {"Authorization": f"Bearer {token}"}
+
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        
+        # Method 1: POST command array JSON
+        for attempt in range(2):
+            try:
+                r = requests.post(url, json=cmd_list, headers=headers, timeout=15)
+                if r.status_code == 200:
+                    res = r.json().get("result")
+                    return True, res
+            except Exception as e:
+                pass
+
+        # Method 2: GET URL path fallback (e.g. GET /PING or GET /GET/key)
         try:
-            r = requests.post(url, json=cmd_list, headers=headers, timeout=10)
+            cmd_path = "/".join([str(x) for x in cmd_list])
+            r = requests.get(f"{url}/{cmd_path}", headers={"Authorization": f"Bearer {token}"}, timeout=15)
             if r.status_code == 200:
                 res = r.json().get("result")
                 return True, res
         except Exception as e:
             print(f"[redis-sync] Redis cmd error {cmd_list[:2]}: {e}", flush=True)
+
         return False, None
 
     @classmethod
