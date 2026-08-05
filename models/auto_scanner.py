@@ -367,6 +367,7 @@ acc `{co['kelly_funded'].get('accuracy_pct',0)}%` │ `{co['kelly_funded'].get('
 `SL→TP {co['kelly_funded'].get('sl_then_tp',0)}` — acc would be \
 `{co['kelly_funded'].get('accuracy_if_stops_fixed',0)}%` with stops fixed
 
+_Cohorts frozen at open; `{co['untagged']}` legacy records unclassified._
 🚫 **KELLY-VETOED (test only)** `{co['kelly_vetoed'].get('n',0)}` trades │ \
 `{co['kelly_vetoed'].get('wins',0)}`W/`{co['kelly_vetoed'].get('losses',0)}`L │ \
 acc `{co['kelly_vetoed'].get('accuracy_pct',0)}%` │ `{co['kelly_vetoed'].get('total_R',0):+.2f}R` │ \
@@ -620,14 +621,33 @@ def run_continuous_quant_hunter():
         open_tickers = [t.get("ticker") for t in ShadowTradeLedger.load_open()
                         if t.get("ticker") in frames]
 
+        # Only bars AFTER each trade opened may count. Using a flat 20-bar window meant
+        # a freshly-opened trade was evaluated against 20 minutes of PRIOR price action:
+        # if TP1 had been touched shortly before entry, the trade resolved as a win on
+        # its first sample. That produced a 10-for-10 "vetoed" cohort — trades that never
+        # actually went anywhere, credited with moves that happened before they existed.
+        open_since = {}
+        for t in ShadowTradeLedger.load_open():
+            tk_ = t.get("ticker")
+            op = float(t.get("opened_epoch", 0) or 0)
+            if tk_ and op:
+                open_since[tk_] = min(open_since.get(tk_, op), op)
+
         def _m1(tk):
             m1, real = BitunixWeexLiveFeed.get_exchange_ohlcv(tk, 0, "1m", limit=30)
             if m1 is None or not real or len(m1) < 2:
                 return None
-            recent = m1.iloc[-20:]
+            since_ms = int(open_since.get(tk, 0) * 1000)
+            if since_ms and "timestamp" in m1.columns:
+                # Strictly after the opening minute; that minute is ambiguous.
+                fresh = m1[m1["timestamp"] > since_ms]
+            else:
+                fresh = m1.iloc[-1:]
+            if fresh.empty:
+                fresh = m1.iloc[-1:]          # nothing new yet: current bar only
             return tk, {"close": float(m1.iloc[-1]['close']),
-                        "high": float(recent['high'].max()),
-                        "low": float(recent['low'].min())}
+                        "high": float(fresh['high'].max()),
+                        "low": float(fresh['low'].min())}
 
         # Sequentially this was 27 round-trips and 5.6s — 47% of the entire warm scan,
         # spent waiting on the network rather than computing anything.

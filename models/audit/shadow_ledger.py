@@ -921,8 +921,14 @@ class ShadowTradeLedger:
                 "outcomes": oc,
             }
 
-        funded = [t for t in rows if not t.get("kelly_vetoed")]
-        vetoed = [t for t in rows if t.get("kelly_vetoed")]
+        # Membership is FROZEN at trade-open time and never recomputed. Recomputing it
+        # from the current calibrated win rate made records migrate between cohorts as
+        # calibration drifted — the split went 7/38 to 49/10 on the same trades, which
+        # makes the comparison untestable. Records opened before the flag existed are
+        # UNCLASSIFIED and excluded rather than retro-assigned.
+        classified = [t for t in rows if "kelly_vetoed" in t]
+        funded = [t for t in classified if not t.get("kelly_vetoed")]
+        vetoed = [t for t in classified if t.get("kelly_vetoed")]
         untagged = [t for t in rows if "kelly_vetoed" not in t]
         f, v = score(funded), score(vetoed)
         # The verdict must COMPARE the cohorts, not just check whether vetoed trades
@@ -950,6 +956,18 @@ class ShadowTradeLedger:
 
     @classmethod
     def backfill_kelly_veto(cls) -> dict:
+        """
+        DISABLED. Retro-classifying records against the CURRENT calibrated win rate is
+        what made cohorts unstable: the same trade could be 'funded' one hour and
+        'vetoed' the next as calibration moved. Cohort membership is now frozen at open
+        and historical records stay UNCLASSIFIED rather than being guessed at.
+        """
+        return {"disabled": True, "reason": "cohort membership is frozen at trade-open",
+                "tagged": 0, "skipped_no_winrate": 0,
+                "total": len(cls.load_closed())}
+
+    @classmethod
+    def _backfill_kelly_veto_legacy(cls) -> dict:
         """
         Retro-classify historical records against the Kelly veto.
 
