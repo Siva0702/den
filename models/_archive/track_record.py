@@ -3,7 +3,7 @@ import json
 import os
 import time
 
-HISTORY_FILE = "portfolio/trade_history.json"
+HISTORY_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "portfolio/trade_history.json")
 
 class PerformanceTrackRecord:
     """

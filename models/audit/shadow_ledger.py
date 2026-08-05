@@ -229,6 +229,7 @@ class ShadowTradeLedger:
                 "last_price": entry,
             }
             record["candle_ts"] = candle_ts
+            record["config_version"] = cls.LOGIC_VERSION
             open_trades.append(record)
             if candle_ts is not None:
                 cls._last_open_candle[key] = candle_ts
@@ -673,6 +674,31 @@ class ShadowTradeLedger:
                 if n_setups >= 5 and setups_correct / max(n_setups, 1) > 0.6 else
                 "not enough missed setups to separate model quality from execution"),
         }
+
+    @classmethod
+    def purge_stale_open(cls) -> dict:
+        """
+        Drop open trades whose STOPS came from a superseded configuration.
+
+        A trade opened under the old 0.6% floor will resolve against that stop and then
+        be stamped with the current logic version — silently contaminating the clean
+        baseline with an outcome the current engine would never have produced. Its
+        levels cannot be retro-fitted either, because entry was taken at a price the
+        new stop logic may not even have accepted.
+        """
+        with cls._lock:
+            open_trades = cls.load_open()
+            keep, purged = [], []
+            for t in open_trades:
+                if t.get("config_version") == cls.LOGIC_VERSION:
+                    keep.append(t)
+                else:
+                    purged.append(t)
+            if purged:
+                cls._atomic_write(SHADOW_OPEN_FILE, keep)
+                print(f"[ledger] purged {len(purged)} open trades from a superseded "
+                      f"stop configuration", flush=True)
+        return {"kept": len(keep), "purged": len(purged)}
 
     @classmethod
     def version_report(cls) -> dict:

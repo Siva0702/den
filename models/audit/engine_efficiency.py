@@ -3,8 +3,13 @@ import json
 import os
 import time
 
-EFFICIENCY_FILE = "audit/engine_efficiency.json"
-TRADE_HISTORY_FILE = "portfolio/trade_history.json"
+# Same defect that broke shadow persistence: Render runs `python models/auto_scanner.py`
+# so cwd is the REPO ROOT, and these relative paths resolved to <repo>/audit/... — a
+# directory that does not exist — instead of <repo>/models/audit/. Every realised trade
+# outcome was being written somewhere nothing reads, and never synced to Redis.
+MODELS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+EFFICIENCY_FILE = os.path.join(MODELS_DIR, "audit/engine_efficiency.json")
+TRADE_HISTORY_FILE = os.path.join(MODELS_DIR, "portfolio/trade_history.json")
 
 class EngineEfficiencyTracker:
     """

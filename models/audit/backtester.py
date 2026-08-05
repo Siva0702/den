@@ -13,7 +13,7 @@ from indicators.confluence_engine import SureShotConfluenceEngine
 from indicators.liquidity_map import LiquidityMapEngine
 from audit.shadow_ledger import ShadowTradeLedger
 
-BACKTEST_FILE = "audit/backtest_closed.json"
+BACKTEST_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "audit/backtest_closed.json")
 
 class WalkForwardBacktester:
     """

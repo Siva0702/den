@@ -20,6 +20,7 @@ from indicators.confluence_engine import SureShotConfluenceEngine
 from indicators.exchange_leverage import ExchangeLeverageEngine
 from indicators.liquidity_map import LiquidityMapEngine
 from indicators.event_volatility import EventVolatilityEngine
+from indicators.correlation_defense import CorrelationDefenseEngine
 from alerts.signal_cooldown import SignalCooldownEngine
 from alerts.telegram_bot import TelegramAlertBot
 from audit.engine_efficiency import EngineEfficiencyTracker
@@ -722,6 +723,7 @@ def run_continuous_quant_hunter():
 
     # ---- Dispatch decision ---------------------------------------------------
     signals_dispatched = 0
+    dispatched_this_scan = []
     now_ts = time.time()
     dry_hours = (now_ts - last_signal_time) / 3600.0
     active_floor = HARD_SCORE_FLOOR
@@ -740,6 +742,36 @@ def run_continuous_quant_hunter():
         # Rank on measured win rate when we have one, otherwise on raw score.
         candidates.sort(key=lambda x: (x["calibrated_win_rate"] if x["calibrated_win_rate"] is not None else -1.0,
                                        x["total_score"]), reverse=True)
+        # CORRELATION PRE-SELECTION.
+        # Candidates are already ranked by calibrated win rate then score, but relying on
+        # arrival order to pick the survivor is fragile — a higher-ranked candidate can
+        # fail an earlier gate and leave a weaker correlated peer to slip through. Choose
+        # the single strongest member of each correlated group up front, so what reaches
+        # the gates is the best available representative rather than the first one seen.
+        by_group = {}
+        filtered = []
+        for c in candidates:
+            grp = None
+            for g, members in CorrelationDefenseEngine.CORRELATED_GROUPS.items():
+                if c["ticker"] in members:
+                    grp = f"{g}|{c['direction']}"
+                    break
+            if grp is None:
+                filtered.append(c)
+                continue
+            prev = by_group.get(grp)
+            key = (c["calibrated_win_rate"] if c["calibrated_win_rate"] is not None else -1, c["total_score"])
+            if prev is None or key > prev[0]:
+                by_group[grp] = (key, c)
+        filtered.extend(c for _, c in by_group.values())
+        filtered.sort(key=lambda x: (x["calibrated_win_rate"] if x["calibrated_win_rate"] is not None else -1.0,
+                                     x["total_score"]), reverse=True)
+        dropped = len(candidates) - len(filtered)
+        if dropped:
+            print(f"[corr] {dropped} correlated peers dropped in favour of the strongest in each group",
+                  flush=True)
+        candidates = filtered
+
         for best in candidates:
             if best["total_score"] < active_floor:
                 continue
@@ -791,7 +823,16 @@ def run_continuous_quant_hunter():
                 print(f"[gate] {best['ticker']} held — {timing_msg}", flush=True)
                 continue
 
+            # Gate 6: correlation. Three correlated longs in one scan is one bet at
+            # triple size, not three signals.
+            ok_corr, corr_why = CorrelationDefenseEngine.check_pending(
+                best["ticker"], best["direction"], dispatched_this_scan)
+            if not ok_corr:
+                print(f"[gate] {best['ticker']} blocked — {corr_why}", flush=True)
+                continue
+
             dispatch_signal(best, stability, reg_warning, relaxed)
+            dispatched_this_scan.append({"ticker": best["ticker"], "direction": best["direction"]})
             signals_dispatched += 1
             last_signal_time = time.time()
             signal_timestamps.append(last_signal_time)
@@ -1070,6 +1111,7 @@ def start_background_scanner_loop():
     except Exception as e:
         print(f"[ledger] version replay failed: {e}", flush=True)
     try:
+        ShadowTradeLedger.purge_stale_open()
         boot_audit = ShadowTradeLedger.audit_integrity(repair=True)
         print(f"[ledger] boot audit: {boot_audit['unique_trades']} unique of "
               f"{boot_audit['total_records']} records, {boot_audit['duplicates']} purged", flush=True)
