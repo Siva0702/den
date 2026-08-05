@@ -80,13 +80,15 @@ class WalkForwardBacktester:
         against us, which is the only safe direction for it to be wrong.
         """
         mae = mfe = 0.0
-        won_at = None
-        sl_touched = False
-        first_tp_bar = None
         tp_hit = []
-        primary_tp = float(ladder[cls.PRIMARY_TP_INDEX]) if ladder else None
-        final_tp = primary_tp
+        sl_touched = False
 
+        # RATCHETING TRAIL STOP, identical to the live ledger.
+        # Before TP1 the original stop is live. Once a rung prints, the stop moves TO
+        # that rung and the position runs for the next one. Falling back to the trail
+        # closes at that rung, so a runner reaching TP3 is booked TP3, not TP1.
+        # Within a bar we cannot know the order, so the stop is assumed to have been
+        # tagged first — biasing the result against us, the only safe direction.
         for i in range(len(future)):
             bar = future.iloc[i]
             hi, lo = float(bar['high']), float(bar['low'])
@@ -94,58 +96,48 @@ class WalkForwardBacktester:
             if direction == "LONG":
                 mae = min(mae, (lo - entry) / entry * 100)
                 mfe = max(mfe, (hi - entry) / entry * 100)
-                hit_sl = lo <= sl
-                reached = [j + 1 for j, tp in enumerate(ladder) if hi >= float(tp)]
             else:
                 mae = min(mae, (entry - hi) / entry * 100)
                 mfe = max(mfe, (entry - lo) / entry * 100)
-                hit_sl = hi >= sl
-                reached = [j + 1 for j, tp in enumerate(ladder) if lo <= float(tp)]
 
-            new_tp = [r for r in reached if r not in tp_hit]
-            # Once the planned exit is banked the position is closed at target; a later
-            # stop touch cannot turn it back into a loss.
-            if hit_sl and won_at is not None:
-                return {"outcome": "TP_THEN_SL", "exit": primary_tp, "is_win": True,
-                        "mae_pct": mae, "mfe_pct": mfe, "tp_hit": tp_hit, "bars_held": won_at}
-            if hit_sl and not sl_touched:
-                sl_touched = True
-                # Pessimistic intrabar ordering: stop first unless a target was
-                # already banked on an earlier bar.
-                if first_tp_bar is None:
-                    exit_px = sl
-                    # keep walking to learn whether it would have reached target later
+            trail_idx = max(tp_hit) if tp_hit else 0
+
+            if trail_idx > 0:
+                trail_stop = float(ladder[trail_idx - 1])
+                stop_hit = (lo <= trail_stop) if direction == "LONG" else (hi >= trail_stop)
+                if stop_hit or trail_idx >= len(ladder):
+                    return {"outcome": f"TP{trail_idx}_HIT", "exit": trail_stop, "is_win": True,
+                            "mae_pct": mae, "mfe_pct": mfe, "tp_hit": tp_hit, "bars_held": i + 1}
+            else:
+                hit_sl = (lo <= sl) if direction == "LONG" else (hi >= sl)
+                if hit_sl:
+                    sl_touched = True
+                    # Keep walking only to learn whether the stop was simply too tight.
                     for k in range(i + 1, len(future)):
                         b2 = future.iloc[k]
-                        if final_tp is not None:
-                            if (direction == "LONG" and float(b2['high']) >= final_tp) or \
-                               (direction == "SHORT" and float(b2['low']) <= final_tp):
-                                return {"outcome": "SL_THEN_TP", "exit": exit_px, "is_win": False,
-                                        "mae_pct": mae, "mfe_pct": mfe, "tp_hit": tp_hit,
-                                        "bars_held": i + 1}
-                    return {"outcome": "SL_HIT", "exit": exit_px, "is_win": False,
+                        tgt = float(ladder[0])
+                        if (direction == "LONG" and float(b2['high']) >= tgt) or \
+                           (direction == "SHORT" and float(b2['low']) <= tgt):
+                            return {"outcome": "SL_THEN_TP", "exit": sl, "is_win": False,
+                                    "mae_pct": mae, "mfe_pct": mfe, "tp_hit": tp_hit,
+                                    "bars_held": i + 1}
+                    return {"outcome": "SL_HIT", "exit": sl, "is_win": False,
                             "mae_pct": mae, "mfe_pct": mfe, "tp_hit": tp_hit, "bars_held": i + 1}
-                return {"outcome": "PARTIAL_THEN_SL", "exit": sl, "is_win": False,
-                        "mae_pct": mae, "mfe_pct": mfe, "tp_hit": tp_hit, "bars_held": i + 1}
 
-            if new_tp:
-                tp_hit.extend(new_tp)
-                if first_tp_bar is None:
-                    first_tp_bar = i
-                # Do NOT return here. The trade is won, but we keep walking so every
-                # higher rung's reach rate is measured. Returning at TP1 made TP2-TP4
-                # look unreachable when in fact we had simply stopped observing.
-                if primary_tp is not None and max(tp_hit) >= cls.PRIMARY_TP_INDEX + 1:
-                    if won_at is None:
-                        won_at = i + 1
-                    if max(tp_hit) >= len(ladder):
-                        return {"outcome": "TP_ALL_RUNGS", "exit": primary_tp, "is_win": True,
-                                "mae_pct": mae, "mfe_pct": mfe, "tp_hit": tp_hit,
-                                "bars_held": won_at}
+            # Advance the ratchet. Only reachable while the trail has not been tagged.
+            if direction == "LONG":
+                reached = [j + 1 for j, tp in enumerate(ladder) if hi >= float(tp)]
+            else:
+                reached = [j + 1 for j, tp in enumerate(ladder) if lo <= float(tp)]
+            for r in reached:
+                if r not in tp_hit:
+                    tp_hit.append(r)
 
-        if won_at is not None:
-            return {"outcome": "TP_PARTIAL", "exit": primary_tp, "is_win": True,
-                    "mae_pct": mae, "mfe_pct": mfe, "tp_hit": tp_hit, "bars_held": won_at}
+        trail_idx = max(tp_hit) if tp_hit else 0
+        if trail_idx > 0:
+            exit_px = float(ladder[trail_idx - 1])
+            return {"outcome": f"TP{trail_idx}_HIT", "exit": exit_px, "is_win": True,
+                    "mae_pct": mae, "mfe_pct": mfe, "tp_hit": tp_hit, "bars_held": len(future)}
         last = float(future.iloc[-1]['close'])
         return {"outcome": "TIMEOUT", "exit": last, "is_win": False,
                 "mae_pct": mae, "mfe_pct": mfe, "tp_hit": tp_hit, "bars_held": len(future)}

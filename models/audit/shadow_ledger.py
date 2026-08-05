@@ -220,8 +220,19 @@ class ShadowTradeLedger:
                     t["sl_touched"] = True
                     t["sl_touched_epoch"] = now
 
-                # TP ladder progress
-                for idx, tp_level in enumerate(t.get("tp_ladder", []) or [t.get("primary_tp")], start=1):
+                # TP ladder progress.
+                # RULE: the result is whichever level price touches FIRST. Once the stop
+                # has been tagged the position is flat, so no further rung may be counted
+                # — otherwise a trade that banked TP1, reversed through the stop, then
+                # drifted up to TP2 would record TP2 as "reached" when it was
+                # uncapturable. Freezing the counter at the stop keeps every rung's reach
+                # rate a valid counterfactual: "would this target have been hit BEFORE the
+                # stop, if it had been my only target?"
+                if t["sl_touched"]:
+                    ladder_iter = []
+                else:
+                    ladder_iter = t.get("tp_ladder", []) or [t.get("primary_tp")]
+                for idx, tp_level in enumerate(ladder_iter, start=1):
                     if tp_level is None:
                         continue
                     tp_level = float(tp_level)
@@ -253,52 +264,53 @@ class ShadowTradeLedger:
                     or t["sl_touched_epoch"] <= t["first_tp_epoch"]
                 )
 
-                # Once the planned exit is banked the trade is a WIN, but we keep
-                # observing so the reach rate of every higher rung is measured. Closing
-                # at TP1 meant TP2-TP4 could never be recorded, which made the whole
-                # "which target should I take" analysis worthless — the higher rungs
-                # showed near-zero reach purely because we stopped looking.
-                primary_idx = min(cls.PRIMARY_TP_INDEX, len(ladder) - 1) if ladder else 0
-                primary_hit = bool(t["tp_levels_hit"]) and max(t["tp_levels_hit"]) >= primary_idx + 1
-                if primary_hit and not t.get("win_locked"):
-                    t["win_locked"] = True
-                    t["win_locked_epoch"] = now
-                    t["exit_price_at_target"] = float(ladder[primary_idx]) if ladder else close
+                # ---- RATCHETING TRAIL STOP -------------------------------------
+                # The stop ratchets up to each rung as it is reached. Before TP1 the
+                # original stop is live. Once TP1 prints, the stop moves TO TP1 and the
+                # position runs for TP2; if price falls back to TP1 first, we are out at
+                # TP1 and the result is TP1_HIT. The same repeats up the ladder, so a
+                # runner that reaches TP3 before turning is booked as TP3, not TP1.
+                #
+                # First touch always decides: anything price does after the trail stop is
+                # tagged is uncapturable and never counted.
+                ladder = t.get("tp_ladder") or ([t["primary_tp"]] if t.get("primary_tp") else [])
+                trail_idx = max(t["tp_levels_hit"]) if t["tp_levels_hit"] else 0
 
-                if t.get("win_locked"):
-                    top_rung = len(ladder) if ladder else 1
-                    all_done = bool(t["tp_levels_hit"]) and max(t["tp_levels_hit"]) >= top_rung
-                    exit_px = t.get("exit_price_at_target", close)
-                    if all_done:
-                        resolved.append(cls._resolve(t, exit_px, "TP_ALL_RUNGS"))
-                    elif sl_touch:
-                        # Stop tagged after the target was banked — still a win, the
-                        # position was already closed at TP.
-                        resolved.append(cls._resolve(t, exit_px, "TP_THEN_SL"))
-                    elif now - t.get("opened_epoch", now) > cls.MAX_HOLD_SECONDS:
-                        resolved.append(cls._resolve(t, exit_px, "TP_PARTIAL"))
+                if trail_idx > 0:
+                    trail_stop = float(ladder[trail_idx - 1])
+                    stop_hit = (low <= trail_stop) if direction == "LONG" else (high >= trail_stop)
+                    if trail_idx >= len(ladder):
+                        # Top rung reached — nothing left to run for.
+                        resolved.append(cls._resolve(t, trail_stop, f"TP{trail_idx}_HIT"))
+                        continue
+                    if stop_hit:
+                        # Pessimistic within-bar ordering: if a bar both advances a rung
+                        # and tags the trail, assume the trail went first.
+                        resolved.append(cls._resolve(t, trail_stop, f"TP{trail_idx}_HIT"))
+                        continue
+                    if now - t.get("opened_epoch", now) > cls.MAX_HOLD_SECONDS:
+                        resolved.append(cls._resolve(t, trail_stop, f"TP{trail_idx}_HIT"))
+                        continue
+                    still_open.append(t)
+                    continue
+
+                # No rung reached yet — the ORIGINAL stop is still the live one.
+                if sl_touch:
+                    t["sl_touched"] = True
+                    t["sl_touched_epoch"] = t["sl_touched_epoch"] or now
+                if t["sl_touched"]:
+                    if now - (t["sl_touched_epoch"] or now) > cls.SL_GRACE_SECONDS:
+                        # Keep the SL_THEN_TP label for stop-placement research, but the
+                        # exit is at the stop either way — the position was flat.
+                        label = "SL_THEN_TP" if t["tp_levels_hit"] else "SL_HIT"
+                        resolved.append(cls._resolve(t, sl, label))
                     else:
                         still_open.append(t)
                     continue
-
-                if sl_first:
-                    # Position would already be flat. Keep observing for a grace window
-                    # purely to learn whether the stop was simply too tight.
-                    if reached_final:
-                        resolved.append(cls._resolve(t, price, "SL_THEN_TP"))
-                    elif now - (t["sl_touched_epoch"] or now) > cls.SL_GRACE_SECONDS:
-                        resolved.append(cls._resolve(t, price, "SL_HIT"))
-                    else:
-                        still_open.append(t)
-                elif reached_final:
-                    resolved.append(cls._resolve(t, price, "TP_FINAL"))
-                elif t["sl_touched"] and t["tp_levels_hit"]:
-                    # Partial target banked BEFORE the stop — a managed scratch.
-                    resolved.append(cls._resolve(t, price, "PARTIAL_THEN_SL"))
-                elif now - t.get("opened_epoch", now) > cls.MAX_HOLD_SECONDS:
+                if now - t.get("opened_epoch", now) > cls.MAX_HOLD_SECONDS:
                     resolved.append(cls._resolve(t, price, "TIMEOUT"))
-                else:
-                    still_open.append(t)
+                    continue
+                still_open.append(t)
 
             cls._atomic_write(SHADOW_OPEN_FILE, still_open)
 
@@ -326,7 +338,7 @@ class ShadowTradeLedger:
         # A win is defined by reaching the PLANNED exit rung before the stop. The
         # trade keeps being observed past that point purely to measure how far price
         # ran, which never changes whether it was a win.
-        is_win = outcome in ("TP_FINAL", "TP_ALL_RUNGS", "TP_THEN_SL", "TP_PARTIAL")
+        is_win = outcome.startswith("TP") and outcome.endswith("_HIT")
 
         trade = dict(trade)
         trade.update({
@@ -338,7 +350,9 @@ class ShadowTradeLedger:
             "pnl_pct": round(pnl_pct, 4),
             "hold_hours": round((time.time() - trade.get("opened_epoch", time.time())) / 3600.0, 2),
             "tp_levels_hit_count": len(trade.get("tp_levels_hit", [])),
-            "max_rung_reached": max(trade.get("tp_levels_hit") or [0]),
+            # Observational only: how far price ran before the stop was tagged. The
+            # RESULT is the exit level above; these rungs never change it.
+            "max_rung_reached_before_stop": max(trade.get("tp_levels_hit") or [0]),
         })
         trade["post_mortem"] = cls.post_mortem(trade)
         return trade
