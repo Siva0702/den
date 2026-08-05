@@ -272,29 +272,27 @@ def build_ledger_report() -> str:
     eq = ShadowTradeLedger.equity_curve(ACCOUNT_BALANCE)
     da = ShadowTradeLedger.directional_accuracy()
     vr = ShadowTradeLedger.version_report()
-    return f"""📒 **SHADOW LEDGER — FULL REPORT**
+    exits = " · ".join(f"`{k} {v}`" for k, v in [
+        ("SL_HIT", s['sl_hit']), ("SL_THEN_TP", s['sl_then_tp']),
+        ("BREAKEVEN", s.get('breakeven', 0)), ("TP1", s['tp1']),
+        ("TP2", s['tp2']), ("TP3", s['tp3']), ("TP4", s['tp4'])] if v)
+    sd = ShadowTradeLedger.stop_diagnosis()
+    stop_line = (f"\n🛡️ **STOPS** median `{sd['median_stop_pct']}%` · median MAE "
+                 f"`{sd['median_mae_pct']}%` · ratio `{sd['ratio']}x` "
+                 f"{'⚠️ too tight' if sd['too_tight'] else '✅'}" if sd.get('available') else "")
+
+    return f"""📒 **SHADOW LEDGER**  `{vr['current_version']}`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📌 **LEDGER `{vr['current_version']}`** — `{vr['current_only']}` current, `{vr['stale_records']}` stale \
-{'✅ calibration-safe' if vr['calibration_safe'] else '⚠️ replay pending'}
-🎯 **TRADEABLE ACCURACY `{s['accuracy_pct']}%`** — `{s['wins']}W / {s['losses']}L` of `{s['total']}` resolved
-👁️ Open `{s['open']}` | tracking now
+`{s['total']}` trades │ `{s['wins']}` wins │ `{s.get('breakeven', 0)}` breakeven │ `{s['losses']}` losses
+**Accuracy `{s['accuracy_pct']}%`**  ·  Total `{eq['total_R']:+.2f}R`  ·  Avg `{eq['avg_R']:+.3f}R`/trade
+**Capital** `${eq['starting_capital']:,.0f}` → `${eq['final_equity']:,.2f}`  (`{eq['return_pct']:+.1f}%`)  ·  Max DD `{eq['max_drawdown_pct']:.1f}%`
 
-💵 **SIMULATED ACCOUNT** (start `${eq['starting_capital']:,.0f}`, risk `${eq['risk_per_trade']:.0f}`/trade)
-Equity `${eq['final_equity']:,.2f}` | Net `${eq['net_profit']:+,.2f}` (`{eq['return_pct']:+.2f}%`)
-Total `{eq['total_R']:+.2f}R` | avg `{eq['avg_R']:+.3f}R`/trade | max DD `{eq['max_drawdown_pct']:.1f}%`
+{exits}{stop_line}
 
-🧭 **DIRECTIONAL** (setups we called right but could not enter)
-Missed `{da['missed_setups']}` | correct `{da['missed_correct']}` | wrong `{da['missed_wrong']}` \
-| directional `{da['missed_directional_pct'] if da['missed_directional_pct'] is not None else '—'}%`
+🧭 **DIRECTIONAL** — missed `{da['missed_setups']}` │ right `{da['missed_correct']}` │ wrong `{da['missed_wrong']}` │ `{da['missed_directional_pct'] if da['missed_directional_pct'] is not None else '—'}%`
 _{da['interpretation']}_
 
-**EXITS**
-`TP1 {s['tp1']}`  `TP2 {s['tp2']}`  `TP3 {s['tp3']}`  `TP4 {s['tp4']}`  → wins `{s['wins']}`
-`SL {s['sl_hit']}`  `SL→TP {s['sl_then_tp']}`  `PARTIAL {s['partial_then_sl']}`  `TIMEOUT {s['timeouts']}` → losses `{s['losses']}`
-
-**P&L**
-Net `{s['net_pct']:+.2f}%` | gross win `{s['gross_win_pct']:+.2f}%` | gross loss `-{s['gross_loss_pct']:.2f}%`
-Profit factor `{s['profit_factor']}` | avg MAE `{s['avg_mae_pct']}%` | avg MFE `{s['avg_mfe_pct']}%`
+👁️ Open `{s['open']}`  ·  stale records `{vr['stale_records']}` {'✅ calibration-safe' if vr['calibration_safe'] else '⚠️ replay pending'}
 
 🏆 **TOP 10 PERFORMERS**
 {rows(rank['best'], '🟢')}

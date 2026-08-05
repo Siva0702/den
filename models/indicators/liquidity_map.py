@@ -142,7 +142,19 @@ class LiquidityMapEngine:
         """
         liquidity = liquidity or cls.map_liquidity(df, atr)
         base_mult = calibrated_multiplier if calibrated_multiplier else 1.5
-        atr_stop_dist = max(atr * base_mult, entry * 0.006) if atr and atr > 0 else entry * 0.008
+
+        # VOLATILITY-SCALED FLOOR.
+        # The old floor was a flat 0.6% of entry, which bound on most setups and put the
+        # stop INSIDE a single candle's normal range: 27 of 36 trades died on the stop
+        # and 8 of those went on to reach target. A stop must clear the instrument's own
+        # noise, so the floor is now the median recent candle range rather than a
+        # percentage that means something different on every asset.
+        try:
+            recent_range = float((df['high'] - df['low']).iloc[-20:].median())
+        except Exception:
+            recent_range = 0.0
+        noise_floor = max(recent_range * 1.30, entry * 0.004)
+        atr_stop_dist = max(atr * base_mult, noise_floor) if atr and atr > 0 else max(noise_floor, entry * 0.008)
 
         rationale = []
         if direction == "LONG":
@@ -176,11 +188,11 @@ class LiquidityMapEngine:
 
         # A stop so wide the trade cannot pay is worse than no trade.
         capped = False
-        if sl_pct > 0.05:
-            sl = entry * (1 - 0.05) if direction == "LONG" else entry * (1 + 0.05)
-            sl_pct = 0.05
+        if sl_pct > 0.06:
+            sl = entry * (1 - 0.06) if direction == "LONG" else entry * (1 + 0.06)
+            sl_pct = 0.06
             capped = True
-            rationale.append("Pool-based stop exceeded 5% — capped; setup is too wide to size sensibly")
+            rationale.append("Stop exceeded 6% — capped; setup too wide to size sensibly")
 
         return {
             "stop_loss": sl,

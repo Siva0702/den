@@ -597,6 +597,7 @@ class ShadowTradeLedger:
             "sl_then_tp": counts["SL_THEN_TP"],
             "partial_then_sl": counts["PARTIAL_THEN_SL"],
             "timeouts": counts["TIMEOUT"] + counts["TIMEOUT_NO_DATA"],
+            "breakeven": sum(1 for t in closed if t.get("is_breakeven")),
             "gross_win_pct": round(gross_win, 2),
             "gross_loss_pct": round(gross_loss, 2),
             "net_pct": round(gross_win - gross_loss, 2),
@@ -759,6 +760,34 @@ class ShadowTradeLedger:
             print(f"[ledger] purged {len(dupes)} duplicate records "
                   f"({', '.join(report['affected_tickers'][:5])})", flush=True)
         return report
+
+    @classmethod
+    def stop_diagnosis(cls) -> dict:
+        """
+        Stop width against what price ACTUALLY does. Measured over EVERY trade, not
+        just winners — winners are the trades that did not get stopped, so measuring
+        only them concludes the stops are fine while most of the book dies on them.
+        """
+        import statistics
+        rows = [t for t in cls.current_version_records()
+                if float(t.get('entry', 0) or 0) > 0 and float(t.get('stop_loss', 0) or 0) > 0]
+        if len(rows) < 8:
+            return {"available": False, "reason": f"only {len(rows)} records"}
+        stops = [abs(float(t['entry']) - float(t['stop_loss'])) / float(t['entry']) * 100 for t in rows]
+        maes = [abs(float(t.get('mae_pct', 0) or 0)) for t in rows]
+        ms, mm = statistics.median(stops), statistics.median(maes)
+        ordered = sorted(maes)
+        p75 = ordered[min(int(len(ordered) * 0.75), len(ordered) - 1)]
+        return {
+            "available": True,
+            "median_stop_pct": round(ms, 2),
+            "median_mae_pct": round(mm, 2),
+            "mae_p75_pct": round(p75, 2),
+            "ratio": round(mm / ms, 1) if ms else 0.0,
+            "too_tight": mm > ms,
+            "recommended_multiplier": round(max(1.0, min(p75 * 1.15 / ms, 3.0)), 2) if ms else 1.5,
+            "n": len(rows),
+        }
 
     @classmethod
     def equity_curve(cls, starting_capital: float = 1000.0, risk_per_trade: float = 30.0) -> dict:

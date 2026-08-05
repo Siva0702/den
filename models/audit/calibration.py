@@ -426,12 +426,15 @@ class WinRateCalibrator:
         the stop beyond the 85th percentile of winner MAE, which is precisely the
         'stopped out then it went to target' problem the user described.
         """
-        winners = [t for t in closed if t.get("is_win")]
-        if len(winners) < 10:
-            return {"available": False, "reason": f"only {len(winners)} winners recorded"}
+        # SURVIVOR BIAS FIX. This previously measured winners only — the trades that by
+        # definition were NOT stopped — and concluded stops were adequate while 27 of 36
+        # trades were dying on them. Heat must be measured across the whole book.
+        population = [t for t in closed if t.get("mae_pct") is not None]
+        if len(population) < 10:
+            return {"available": False, "reason": f"only {len(population)} records"}
 
-        winner_mae = sorted(abs(t.get("mae_pct", 0.0)) for t in winners)
-        sl_dists = [abs((t.get("post_mortem", {}) or {}).get("sl_distance_pct", 0.0)) for t in winners]
+        winner_mae = sorted(abs(t.get("mae_pct", 0.0)) for t in population)
+        sl_dists = [abs((t.get("post_mortem", {}) or {}).get("sl_distance_pct", 0.0)) for t in population]
         sl_dists = [d for d in sl_dists if d > 0]
 
         def pct(data, q):
@@ -442,7 +445,7 @@ class WinRateCalibrator:
 
         p85_mae = pct(winner_mae, 0.85)
         median_sl = statistics.median(sl_dists) if sl_dists else 0.0
-        recommended = (p85_mae * 1.20) / median_sl if median_sl > 0 else 1.0
+        recommended = (p85_mae * 1.15) / median_sl if median_sl > 0 else 1.0
 
         sl_then_tp = [t for t in closed if t.get("outcome") == "SL_THEN_TP"]
 
@@ -451,7 +454,7 @@ class WinRateCalibrator:
             "winner_mae_median_pct": round(statistics.median(winner_mae), 4),
             "winner_mae_p85_pct": round(p85_mae, 4),
             "current_median_sl_pct": round(median_sl, 4),
-            "recommended_sl_multiplier": round(max(0.8, min(recommended, 2.5)), 3),
+            "recommended_sl_multiplier": round(max(1.0, min(recommended, 3.0)), 3),
             "sl_then_tp_count": len(sl_then_tp),
             "sl_then_tp_rate": round(len(sl_then_tp) / len(closed), 4),
             "interpretation": (
