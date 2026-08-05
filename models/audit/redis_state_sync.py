@@ -47,8 +47,8 @@ class UpstashRedisStateSync:
 
     @classmethod
     def enabled(cls) -> bool:
-        if cls._enabled is not None:
-            return cls._enabled
+        if cls._enabled is True:
+            return True
 
         url = os.getenv("UPSTASH_REDIS_REST_URL", "").strip().strip('"').strip("'")
         token = os.getenv("UPSTASH_REDIS_REST_TOKEN", "").strip().strip('"').strip("'")
@@ -57,35 +57,25 @@ class UpstashRedisStateSync:
             url = f"https://{url}"
 
         if not url or not token:
-            # Fallback check if user passed redis:// URL
-            redis_url = os.getenv("UPSTASH_REDIS_URL", "").strip().strip('"').strip("'")
-            if redis_url and "upstash.io" in redis_url:
-                try:
-                    user_pass, host_port = redis_url.replace("redis://", "").split("@")
-                    token = user_pass.split(":")[-1]
-                    host = host_port.split(":")[0]
-                    url = f"https://{host}"
-                    os.environ["UPSTASH_REDIS_REST_URL"] = url
-                    os.environ["UPSTASH_REDIS_REST_TOKEN"] = token
-                except Exception:
-                    pass
-
-        if not url or not token:
-            print("[redis-sync] DISABLED — UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set. State is local-only.", flush=True)
             cls._enabled = False
             return False
 
-        # Try POST first, fallback to GET if needed
-        for attempt in range(2):
-            ok, res = cls._redis_cmd(["PING"])
-            if ok and (res == "PONG" or res == "pong" or str(res).upper() == "PONG"):
-                print("[redis-sync] ENABLED — Upstash Redis state persistence active (0 git churn)", flush=True)
-                cls._enabled = True
-                return True
-            time.sleep(1)
+        # Quick connection test with fast-fail (3s, 5s)
+        for timeout_val in (3, 5):
+            try:
+                headers = {"Authorization": f"Bearer {token}", "User-Agent": "DenEngine/39.0", "Content-Type": "application/json"}
+                r = requests.post(url, json=["PING"], headers=headers, timeout=timeout_val)
+                if r.status_code == 200:
+                    res = r.json().get("result")
+                    if res and str(res).upper() in ("PONG", "OK"):
+                        print("[redis-sync] ENABLED — Upstash Redis state persistence active (0 git churn)", flush=True)
+                        cls._enabled = True
+                        return True
+            except Exception:
+                pass
 
-        print("[redis-sync] DISABLED — Redis PING failed after retries", flush=True)
-        cls._enabled = False
+        # Allow re-check on next sync cycle instead of locking to False forever
+        cls._enabled = None
         return False
 
     @classmethod
@@ -97,22 +87,26 @@ class UpstashRedisStateSync:
         if not url or not token:
             return False, None
 
-        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "DenEngine/39.0",
+            "Content-Type": "application/json"
+        }
         
-        # Method 1: POST command array JSON
+        # Method 1: POST command array JSON (5s timeout)
         for attempt in range(2):
             try:
-                r = requests.post(url, json=cmd_list, headers=headers, timeout=15)
+                r = requests.post(url, json=cmd_list, headers=headers, timeout=5)
                 if r.status_code == 200:
                     res = r.json().get("result")
                     return True, res
-            except Exception as e:
+            except Exception:
                 pass
 
-        # Method 2: GET URL path fallback (e.g. GET /PING or GET /GET/key)
+        # Method 2: GET URL path fallback (5s timeout)
         try:
             cmd_path = "/".join([str(x) for x in cmd_list])
-            r = requests.get(f"{url}/{cmd_path}", headers={"Authorization": f"Bearer {token}"}, timeout=15)
+            r = requests.get(f"{url}/{cmd_path}", headers={"Authorization": f"Bearer {token}", "User-Agent": "DenEngine/39.0"}, timeout=5)
             if r.status_code == 200:
                 res = r.json().get("result")
                 return True, res
