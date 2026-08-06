@@ -112,6 +112,7 @@ class LedgerRecovery:
 
         mae = mfe = 0.0
         tp_hit = []
+        armed = 0
 
         # TRAIL SITS ONE RUNG BEHIND THE HIGHEST TARGET REACHED.
         #   no rung yet -> original stop      (a hit here is a real LOSS)
@@ -123,12 +124,17 @@ class LedgerRecovery:
         # current price and trigger on the same candle, which is why every trade died at
         # TP1 and why 16 "stop-outs" were counted as losses when many were breakeven or
         # better. A trade that reaches TP1 can no longer lose.
+        # TRAIL MOVES TO THE RUNG JUST REACHED — matching the live ledger and the
+        # specified rule: "TP1 hit, temporary SL becomes TP1; if that is hit before TP2,
+        # the result is TP1". I had implemented one-rung-behind here only, so the replay
+        # and the live path were resolving the SAME trade differently and both were being
+        # stamped v4. 195 records used the live rule, 8 the replay rule.
+        # Same-candle triggering is prevented by the arming delay below, not by
+        # sacrificing a whole rung of profit.
         def trail_level(n):
             if n <= 0:
                 return sl
-            if n == 1:
-                return entry               # breakeven
-            return ladder[n - 2]           # one rung behind
+            return ladder[n - 1]           # the rung just reached
 
         for i in range(len(bars)):
             hi = float(bars.iloc[i]["high"])
@@ -143,6 +149,19 @@ class LedgerRecovery:
 
             n = max(tp_hit) if tp_hit else 0
             lvl = trail_level(n)
+            # A rung arms one bar after it is tagged: price reaches a target from below,
+            # so that bar's low sits under it by definition.
+            if n > 0 and armed != n:
+                armed = n
+                reached_now = ([j + 1 for j, tp in enumerate(ladder) if hi >= tp]
+                               if direction == "LONG" else
+                               [j + 1 for j, tp in enumerate(ladder) if lo <= tp])
+                for r in reached_now:
+                    if r not in tp_hit:
+                        tp_hit.append(r)
+                if tp_hit and max(tp_hit) >= len(ladder):
+                    return cls._out(rec, "TP4_HIT", ladder[-1], True, mae, mfe, tp_hit, i + 1)
+                continue
             stopped = (lo <= lvl) if direction == "LONG" else (hi >= lvl)
 
             if stopped:
@@ -153,10 +172,7 @@ class LedgerRecovery:
                                 (direction == "SHORT" and float(bars.iloc[k]["low"]) <= tgt)):
                             return cls._out(rec, "SL_THEN_TP", sl, False, mae, mfe, tp_hit, i + 1)
                     return cls._out(rec, "SL_HIT", sl, False, mae, mfe, tp_hit, i + 1)
-                if n == 1:
-                    # Reached target, trailed back to entry. No loss, no profit.
-                    return cls._out(rec, "BREAKEVEN", entry, None, mae, mfe, tp_hit, i + 1)
-                return cls._out(rec, f"TP{n - 1}_LOCKED", lvl, True, mae, mfe, tp_hit, i + 1)
+                return cls._out(rec, f"TP{n}_HIT", lvl, True, mae, mfe, tp_hit, i + 1)
 
             reached = ([j + 1 for j, tp in enumerate(ladder) if hi >= tp] if direction == "LONG"
                        else [j + 1 for j, tp in enumerate(ladder) if lo <= tp])
@@ -167,10 +183,8 @@ class LedgerRecovery:
                 return cls._out(rec, "TP4_HIT", ladder[-1], True, mae, mfe, tp_hit, i + 1)
 
         n = max(tp_hit) if tp_hit else 0
-        if n >= 2:
-            return cls._out(rec, f"TP{n-1}_RUNNING", trail_level(n), True, mae, mfe, tp_hit, len(bars), True)
-        if n == 1:
-            return cls._out(rec, "BREAKEVEN_RUNNING", entry, None, mae, mfe, tp_hit, len(bars), True)
+        if n >= 1:
+            return cls._out(rec, f"TP{n}_RUNNING", trail_level(n), True, mae, mfe, tp_hit, len(bars), True)
         return cls._out(rec, "STILL_OPEN", float(bars.iloc[-1]["close"]), False,
                         mae, mfe, tp_hit, len(bars), True)
 
