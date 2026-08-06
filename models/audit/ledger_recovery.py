@@ -37,8 +37,16 @@ class LedgerRecovery:
     MAX_WORKERS = 4
     MAX_BARS = 500
 
-    TICKER_MAP = {"PEPE/USDT": "1000PEPEUSDT", "SHIB/USDT": "1000SHIBUSDT",
-                  "BONK/USDT": "1000BONKUSDT", "MATIC/USDT": "POLUSDT"}
+    # Symbol AND divisor, mirroring the live feed. Remapping 1000BONKUSDT without
+    # dividing by 1000 compared 1000x-scaled candles against an entry recorded at BONK
+    # scale, producing MAE readings like -100,115% and a guaranteed false stop-out on
+    # every 1000x-prefixed asset. The live feed had the divisor; this did not.
+    TICKER_MAP = {
+        "PEPE/USDT": ("1000PEPEUSDT", 1000.0),
+        "SHIB/USDT": ("1000SHIBUSDT", 1000.0),
+        "BONK/USDT": ("1000BONKUSDT", 1000.0),
+        "MATIC/USDT": ("POLUSDT", 1.0),
+    }
 
     # ------------------------------------------------------------------
     @classmethod
@@ -52,7 +60,8 @@ class LedgerRecovery:
         ORDER of events is directly observable and almost no ambiguity remains. Binance
         USD-M does not publish sub-minute klines, so 1m is the finest available.
         """
-        sym = cls.TICKER_MAP.get(ticker, ticker.replace("/", "").upper())
+        mapped = cls.TICKER_MAP.get(ticker)
+        sym, div = mapped if mapped else (ticker.replace("/", "").upper(), 1.0)
         bybit_iv = {"1m": "1", "5m": "5", "15m": "15"}.get(interval, "1")
         attempts = [
             ("binance", f"https://fapi.binance.com/fapi/v1/klines?symbol={sym}"
@@ -74,23 +83,23 @@ class LedgerRecovery:
                     if not rows:
                         continue
                     return pd.DataFrame([{
-                        "timestamp": int(k[0]), "open": float(k[1]), "high": float(k[2]),
-                        "low": float(k[3]), "close": float(k[4]), "volume": float(k[5])}
+                        "timestamp": int(k[0]), "open": float(k[1]) / div, "high": float(k[2]) / div,
+                        "low": float(k[3]) / div, "close": float(k[4]) / div, "volume": float(k[5]) * div}
                         for k in rows])
                 if name == "bitget":
                     kl = data.get("data") or []
                     if not kl:
                         continue
                     return pd.DataFrame([{
-                        "timestamp": int(k[0]), "open": float(k[1]), "high": float(k[2]),
-                        "low": float(k[3]), "close": float(k[4]), "volume": float(k[5])}
+                        "timestamp": int(k[0]), "open": float(k[1]) / div, "high": float(k[2]) / div,
+                        "low": float(k[3]) / div, "close": float(k[4]) / div, "volume": float(k[5]) * div}
                         for k in kl])
                 kl = (data.get("result") or {}).get("list") or []
                 if not kl:
                     continue
                 return pd.DataFrame([{
-                    "timestamp": int(k[0]), "open": float(k[1]), "high": float(k[2]),
-                    "low": float(k[3]), "close": float(k[4]), "volume": float(k[5])}
+                    "timestamp": int(k[0]), "open": float(k[1]) / div, "high": float(k[2]) / div,
+                    "low": float(k[3]) / div, "close": float(k[4]) / div, "volume": float(k[5]) * div}
                     for k in reversed(kl)])
             except Exception:
                 continue
