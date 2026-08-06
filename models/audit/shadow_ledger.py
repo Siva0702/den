@@ -203,7 +203,13 @@ class ShadowTradeLedger:
                 "stop_loss": float(candidate.get("sl", 0.0)),
                 "tp_ladder": candidate.get("tp_ladder", []),
                 "primary_tp": float(candidate.get("tp", 0.0)),
-                "raw_score": score,
+                # raw_score is the pillar sum BEFORE any learned tilt. adjusted_score is
+                # what the gates compared against. Storing only one made the field
+                # ambiguous once the tilt shipped: reconstructions were adding the
+                # adjustment to a number that already contained it.
+                "raw_score": float(candidate.get("pillar_score", score)),
+                "adjusted_score": score,
+                "learned_adjustment": candidate.get("learned_adjustment"),
                 "calibrated_win_rate": candidate.get("calibrated_win_rate"),
                 "opened_epoch": time.time(),
                 "opened_time": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -766,9 +772,25 @@ class ShadowTradeLedger:
         # inside DEDUP_WINDOW_SECONDS of each other. The same entry price recurring
         # hours later is a genuinely separate opportunity and is preserved — otherwise
         # a legitimate re-entry at a level that worked twice would be silently erased.
-        closed = sorted(cls.load_closed(), key=lambda t: t.get("closed_epoch", 0) or 0)
+        # shadow_id is the primary key and must be checked FIRST. The value-based check
+        # below cannot see two rows carrying the same id, so a file with 21 duplicate
+        # shadow_ids reported clean: True, duplicates: 0 — the audit was blind to the
+        # exact corruption it exists to catch.
+        raw = cls.load_closed()
+        by_id = {}
+        id_dupes = []
+        for t in raw:
+            sid = t.get("shadow_id")
+            if sid and sid in by_id:
+                id_dupes.append(t)
+            elif sid:
+                by_id[sid] = t
+        if id_dupes:
+            raw = [t for t in raw if id(t) not in {id(d) for d in id_dupes}]
+
+        closed = sorted(raw, key=lambda t: t.get("closed_epoch", 0) or 0)
         seen = {}
-        dupes = []
+        dupes = list(id_dupes)
         for t in closed:
             k = (t.get("ticker"), t.get("direction"), round(float(t.get("entry", 0) or 0), 10),
                  t.get("outcome"))
@@ -783,6 +805,7 @@ class ShadowTradeLedger:
             "total_records": len(closed),
             "unique_trades": len(closed) - len(dupes),   # records KEPT, not distinct keys
             "duplicates": len(dupes),
+            "duplicate_shadow_ids": len(id_dupes),
             "duplicate_pct": round(len(dupes) / len(closed) * 100, 1) if closed else 0.0,
             "affected_tickers": sorted({d.get("ticker") for d in dupes}),
             "clean": not dupes,
