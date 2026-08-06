@@ -207,7 +207,8 @@ class ShadowTradeLedger:
                 # what the gates compared against. Storing only one made the field
                 # ambiguous once the tilt shipped: reconstructions were adding the
                 # adjustment to a number that already contained it.
-                "raw_score": float(candidate.get("pillar_score", score)),
+                "raw_score": float(candidate.get("pillar_score") if
+                                   candidate.get("pillar_score") is not None else score),
                 "adjusted_score": score,
                 "learned_adjustment": candidate.get("learned_adjustment"),
                 "calibrated_win_rate": candidate.get("calibrated_win_rate"),

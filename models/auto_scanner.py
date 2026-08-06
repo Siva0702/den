@@ -844,6 +844,8 @@ def run_continuous_quant_hunter():
                 "ticker": ticker, "direction": direction, "entry": entry, "sl": sl,
                 "tp": primary_tp, "tp_ladder": tp_ladder, "sl_pct": sl_pct, "tp_pct": tp_pct,
                 "rr": rr, "total_score": score, "calibrated_win_rate": win_rate,
+                "pillar_score": signal.get("pillar_score"),
+                "learned_adjustment": signal.get("learned_adjustment"),
                 "calibration": cal, "recommendation_label": signal["recommendation_label"],
                 "factors_passed": signal.get("factors_passed", []),
                 "factors_failed": signal.get("factors_failed", []),

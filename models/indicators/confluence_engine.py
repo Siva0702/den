@@ -589,12 +589,15 @@ class SureShotConfluenceEngine:
         # symmetric BOS reward that was promoting 25%-accuracy bullish breaks into the
         # 70+ band. Shrinkage means a thinly-observed condition barely moves the score.
         learn_notes = []
+        learned_long = learned_short = 0.0
         try:
             from audit.regime_performance import RegimePerformance
             bos_state = p_struct["bos"]["bos"]
             adj_long = RegimePerformance.adjustment("LONG", bos_state, market_regime)
             adj_short = RegimePerformance.adjustment("SHORT", bos_state, market_regime)
             if adj_long.get("available"):
+                learned_long = adj_long["total"]
+                learned_short = adj_short["total"]
                 tilt_long += adj_long["total"]
                 tilt_short += adj_short["total"]
                 if abs(adj_long["total"]) > 0.5 or abs(adj_short["total"]) > 0.5:
@@ -693,6 +696,14 @@ class SureShotConfluenceEngine:
 
         return {
             "total_score": round(total_score, 2),
+            # The pillar sum BEFORE any tilt, and the learned-regime component on its
+            # own. These do NOT sum to total_score — the news/BTC-beta tilt sits between
+            # them, and the total is clamped to 0-100. They exist so a later analysis can
+            # tell an un-tilted score from a tilted one instead of guessing from dates.
+            "pillar_score": round(base_long if direction == "LONG"
+                                  else base_short if direction == "SHORT" else 0.0, 2),
+            "learned_adjustment": round(learned_long if direction == "LONG"
+                                        else learned_short if direction == "SHORT" else 0.0, 2),
             "direction": direction,
             "is_sure_shot": is_sure_shot,
             "recommendation_label": rec_label,
