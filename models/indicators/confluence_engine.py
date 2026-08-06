@@ -6,6 +6,7 @@ from indicators.orderflow_imbalance import InstitutionalOrderFlowEngine
 from indicators.volume_profile import InstitutionalVolumeProfile
 from indicators.anti_manipulation import InstitutionalAntiManipulationShield
 from indicators.liquidity_map import LiquidityMapEngine
+from indicators.regime_engine import MarketRegimeEngine
 
 
 class SureShotConfluenceEngine:
@@ -503,6 +504,14 @@ class SureShotConfluenceEngine:
         p_struct = cls._score_structure(df, hunt_long, hunt_short)
         p_def = cls._score_defense(df, derivatives, news, hunt_long, hunt_short, calendar, event_vol)
 
+        # TWO-AXIS REGIME. The old label measured volatility only and could not tell a
+        # bull market from a bear one — the single distinction that decides whether long
+        # or short is the right side. Legacy label retained for continuity with existing
+        # records; the new one is what conditions the score.
+        regime_read = MarketRegimeEngine.classify(df, p_htf.get("trends"))
+        market_regime = regime_read.get("legacy_regime", "RANGING")
+        regime_full = regime_read.get("regime", "UNKNOWN")
+
         pillars = [p_trend, p_htf, p_flow, p_struct, p_def]
         base_long = sum(p["long"] for p in pillars)
         base_short = sum(p["short"] for p in pillars)
@@ -575,8 +584,32 @@ class SureShotConfluenceEngine:
                 tilt_short += edge * 4.0
                 tilt_notes.append(f"Realised history on {ticker}: {w}W/{l}L ({edge * 4.0:+.1f} pts)")
 
-        tilt_long = max(-cls.MAX_CONTEXT_TILT, min(tilt_long, cls.MAX_CONTEXT_TILT))
-        tilt_short = max(-cls.MAX_CONTEXT_TILT, min(tilt_short, cls.MAX_CONTEXT_TILT))
+        # LEARNED REGIME/STRUCTURE ADJUSTMENT.
+        # Measured from resolved outcomes, never hand-set. This is what corrects the
+        # symmetric BOS reward that was promoting 25%-accuracy bullish breaks into the
+        # 70+ band. Shrinkage means a thinly-observed condition barely moves the score.
+        learn_notes = []
+        try:
+            from audit.regime_performance import RegimePerformance
+            bos_state = p_struct["bos"]["bos"]
+            adj_long = RegimePerformance.adjustment("LONG", bos_state, market_regime)
+            adj_short = RegimePerformance.adjustment("SHORT", bos_state, market_regime)
+            if adj_long.get("available"):
+                tilt_long += adj_long["total"]
+                tilt_short += adj_short["total"]
+                if abs(adj_long["total"]) > 0.5 or abs(adj_short["total"]) > 0.5:
+                    learn_notes.append(f"Learned edge: LONG {adj_long['total']:+.1f}, "
+                                       f"SHORT {adj_short['total']:+.1f} pts "
+                                       f"(BOS {bos_state}, {market_regime})")
+        except Exception as e:
+            print(f"[!] regime adjustment unavailable: {type(e).__name__}")
+        tilt_notes.extend(learn_notes)
+
+        # The learned component legitimately exceeds the base tilt cap, so the ceiling is
+        # widened to accommodate it — still bounded, so no single input can run away.
+        WIDE = cls.MAX_CONTEXT_TILT * 2.2
+        tilt_long = max(-WIDE, min(tilt_long, WIDE))
+        tilt_short = max(-WIDE, min(tilt_short, WIDE))
 
         final_long = max(0.0, min(base_long + tilt_long, 100.0))
         final_short = max(0.0, min(base_short + tilt_short, 100.0))
@@ -590,15 +623,6 @@ class SureShotConfluenceEngine:
         else:
             total_score, direction, hunt = 0.0, "NONE", {}
 
-        # Regime
-        if atr_percentile > 0.7:
-            market_regime = "VOLATILE"
-        elif atr_percentile < 0.3:
-            market_regime = "CHOPPY"
-        elif abs(p_htf["tf_align_raw"]) >= 3:
-            market_regime = "TRENDING"
-        else:
-            market_regime = "RANGING"
 
         # Collect narrative
         factors_passed = []
@@ -642,6 +666,11 @@ class SureShotConfluenceEngine:
             "htf_bias": p_htf["htf_bias"],
             "bos": p_struct["bos"]["bos"],
             "market_regime": market_regime,
+            "regime": regime_full,
+            "regime_direction": regime_read.get("direction"),
+            "regime_volatility": regime_read.get("volatility"),
+            "regime_favours": regime_read.get("favours"),
+            "mean_reverting": regime_read.get("mean_reverting"),
             "atr_percentile": round(atr_percentile, 3),
             "rsi": round(float(rsi), 2),
             "btc_correlation": round(btc_corr, 3) if btc_corr else 0.0,
@@ -685,6 +714,8 @@ class SureShotConfluenceEngine:
             "atr_percentile": round(atr_percentile, 3),
             "estimated_duration": est_duration,
             "market_regime": market_regime,
+            "regime_full": regime_full,
+            "regime_detail": regime_read,
             "timeframe_alignment": p_htf["aligned_count"],
             "trend_strength_pct": round((p_htf[side] / p_htf["budget"]) * 100 if direction != "NONE" else 0, 0),
             "liquidity": liquidity,
