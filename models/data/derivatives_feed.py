@@ -5,6 +5,12 @@ import time
 import threading
 import requests
 
+def _fallback():
+    """Bybit stand-in for Binance USD-M, which answers 451 from US datacentres."""
+    from data.derivatives_fallback import BybitDerivativesFallback
+    return BybitDerivativesFallback
+
+
 class DerivativesIntelligence:
     """
     Den Engine v39.0 Derivatives Microstructure Intelligence.
@@ -83,7 +89,7 @@ class DerivativesIntelligence:
         sym = cls._symbol(ticker)
         data = cls._cached_get(f"fund:{sym}", f"{cls.BASE}/fapi/v1/premiumIndex?symbol={sym}", cls.TTL_FUNDING)
         if not isinstance(data, dict) or "lastFundingRate" not in data:
-            return {"available": False}
+            return _fallback().get_funding(ticker)
         try:
             rate = float(data["lastFundingRate"])
             mark = float(data.get("markPrice", 0.0))
@@ -117,11 +123,11 @@ class DerivativesIntelligence:
         url = f"{cls.BASE}/futures/data/openInterestHist?symbol={sym}&period={period}&limit=12"
         data = cls._cached_get(f"oi:{sym}:{period}", url, cls.TTL_OI)
         if not isinstance(data, list) or len(data) < 4:
-            return {"available": False}
+            return _fallback().get_open_interest_delta(ticker, period)
         try:
             series = [float(d["sumOpenInterest"]) for d in data]
         except Exception:
-            return {"available": False}
+            return _fallback().get_open_interest_delta(ticker, period)
 
         latest, prev, oldest = series[-1], series[-2], series[0]
         delta_1 = (latest - prev) / prev if prev else 0.0
@@ -142,12 +148,12 @@ class DerivativesIntelligence:
         url = f"{cls.BASE}/futures/data/globalLongShortAccountRatio?symbol={sym}&period={period}&limit=4"
         data = cls._cached_get(f"ls:{sym}:{period}", url, cls.TTL_RATIO)
         if not isinstance(data, list) or not data:
-            return {"available": False}
+            return _fallback().get_crowding(ticker, period)
         try:
             long_acct = float(data[-1]["longAccount"])
             ratio = float(data[-1]["longShortRatio"])
         except Exception:
-            return {"available": False}
+            return _fallback().get_crowding(ticker, period)
 
         # >70% of accounts on one side is where stop-hunts feed.
         if long_acct >= 0.70:
