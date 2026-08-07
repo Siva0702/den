@@ -136,8 +136,13 @@ class ShadowTradeLedger:
         Idempotent per (ticker, direction) while a shadow trade is live, so the 15s
         scan loop cannot spam duplicates of the same setup.
         """
+        from audit.score_model import CalibratedScoreModel
+        model_score = candidate.get("model_score")
         score = float(candidate.get("total_score", 0.0))
-        if score < cls.SHADOW_FLOOR:
+        if model_score is not None:
+            if float(model_score) < CalibratedScoreModel.MODEL_SHADOW_FLOOR:
+                return False
+        elif score < cls.SHADOW_FLOOR:
             return False
 
         ticker = candidate.get("ticker")
@@ -209,8 +214,11 @@ class ShadowTradeLedger:
                 # adjustment to a number that already contained it.
                 "raw_score": float(candidate.get("pillar_score") if
                                    candidate.get("pillar_score") is not None else score),
-                "adjusted_score": score,
+                "adjusted_score": float(candidate.get("adjusted_score") if
+                                        candidate.get("adjusted_score") is not None else score),
                 "learned_adjustment": candidate.get("learned_adjustment"),
+                "model_score": candidate.get("model_score"),
+                "model_prob": candidate.get("model_prob"),
                 "calibrated_win_rate": candidate.get("calibrated_win_rate"),
                 "opened_epoch": time.time(),
                 "opened_time": time.strftime("%Y-%m-%d %H:%M:%S"),

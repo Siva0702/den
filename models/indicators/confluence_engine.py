@@ -154,11 +154,14 @@ class SureShotConfluenceEngine:
         budget = cls.PILLAR_BUDGET["htf"]
         # Weighted: the daily governs, the 15m merely executes.
         weights = {"1d": 0.40, "4h": 0.30, "1h": 0.20, "15m": 0.10}
+        def _closed(d):
+            return d.iloc[:-1] if (d is not None and len(d) > 1) else d
+
         trends = {
-            "1d": cls._calc_trend(df_1d),
-            "4h": cls._calc_trend(df_4h),
-            "1h": cls._calc_trend(df_1h),
-            "15m": cls._calc_trend(df_15m),
+            "1d": cls._calc_trend(_closed(df_1d)),
+            "4h": cls._calc_trend(_closed(df_4h)),
+            "1h": cls._calc_trend(_closed(df_1h)),
+            "15m": cls._calc_trend(_closed(df_15m)),
         }
 
         long_frac = sum(w for tf, w in weights.items() if trends[tf] > 0)
@@ -484,31 +487,35 @@ class SureShotConfluenceEngine:
         df = ohlcv_15m.copy()
         close = float(df['close'].iloc[-1])
 
+        # All pillar and indicator calculations use closed bars only (df.iloc[:-1])
+        # as the last bar is still forming. The forming bar's close is used for price only.
+        df_calc = df.iloc[:-1].copy() if len(df) > 1 else df.copy()
+
         # Pre-computation
-        atr_series = cls._calculate_atr(df)
+        atr_series = cls._calculate_atr(df_calc)
         curr_atr = float(atr_series.iloc[-1])
-        curr_vwap = float(cls._calculate_vwap(df).iloc[-1])
-        rsi, _, _ = cls._calculate_rsi(df)
-        _, _, macd_hist = cls._calculate_macd(df)
+        curr_vwap = float(cls._calculate_vwap(df_calc).iloc[-1])
+        rsi, _, _ = cls._calculate_rsi(df_calc)
+        _, _, macd_hist = cls._calculate_macd(df_calc)
         atr_100 = atr_series.iloc[-100:] if len(atr_series) >= 100 else atr_series
         atr_percentile = float((atr_100 < curr_atr).mean())
 
-        liquidity = LiquidityMapEngine.map_liquidity(df, curr_atr)
-        hunt_long = LiquidityMapEngine.hunt_risk(df, "LONG", curr_atr, liquidity)
-        hunt_short = LiquidityMapEngine.hunt_risk(df, "SHORT", curr_atr, liquidity)
+        liquidity = LiquidityMapEngine.map_liquidity(df_calc, curr_atr)
+        hunt_long = LiquidityMapEngine.hunt_risk(df_calc, "LONG", curr_atr, liquidity)
+        hunt_short = LiquidityMapEngine.hunt_risk(df_calc, "SHORT", curr_atr, liquidity)
 
         # Pillars
-        p_trend = cls._score_trend(df)
+        p_trend = cls._score_trend(df_calc)
         p_htf = cls._score_htf(df, ohlcv_1h, ohlcv_4h, ohlcv_1d)
-        p_flow = cls._score_orderflow(df, derivatives, curr_vwap, rsi, macd_hist, atr_percentile)
-        p_struct = cls._score_structure(df, hunt_long, hunt_short)
-        p_def = cls._score_defense(df, derivatives, news, hunt_long, hunt_short, calendar, event_vol)
+        p_flow = cls._score_orderflow(df_calc, derivatives, curr_vwap, rsi, macd_hist, atr_percentile)
+        p_struct = cls._score_structure(df_calc, hunt_long, hunt_short)
+        p_def = cls._score_defense(df_calc, derivatives, news, hunt_long, hunt_short, calendar, event_vol)
 
         # TWO-AXIS REGIME. The old label measured volatility only and could not tell a
         # bull market from a bear one — the single distinction that decides whether long
         # or short is the right side. Legacy label retained for continuity with existing
         # records; the new one is what conditions the score.
-        regime_read = MarketRegimeEngine.classify(df, p_htf.get("trends"))
+        regime_read = MarketRegimeEngine.classify(df_calc, p_htf.get("trends"))
         market_regime = regime_read.get("legacy_regime", "RANGING")
         regime_full = regime_read.get("regime", "UNKNOWN")
 

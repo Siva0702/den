@@ -26,6 +26,7 @@ from alerts.telegram_bot import TelegramAlertBot
 from audit.engine_efficiency import EngineEfficiencyTracker
 from audit.shadow_ledger import ShadowTradeLedger
 from audit.calibration import WinRateCalibrator
+from audit.score_model import CalibratedScoreModel
 from audit.score_tracker import ScoreStabilityTracker
 from audit.redis_state_sync import UnifiedStateSync as GitStateSync
 from data.exchange_feed import BitunixWeexLiveFeed
@@ -618,14 +619,17 @@ def run_continuous_quant_hunter():
     # cost is bounded by the size of the book rather than the universe.
     # (Binance USD-M has no 1s interval — 1m is the finest available for futures.)
     try:
-        open_tickers = [t.get("ticker") for t in ShadowTradeLedger.load_open()
-                        if t.get("ticker") in frames]
+        open_tickers = {t.get("ticker") for t in ShadowTradeLedger.load_open()
+                        if t.get("ticker") in frames}
 
-        # Only bars AFTER each trade opened may count. Using a flat 20-bar window meant
-        # a freshly-opened trade was evaluated against 20 minutes of PRIOR price action:
-        # if TP1 had been touched shortly before entry, the trade resolved as a win on
-        # its first sample. That produced a 10-for-10 "vetoed" cohort — trades that never
-        # actually went anywhere, credited with moves that happened before they existed.
+        # Candidates: non-open tickers whose 15m preliminary score cleared SHADOW_FLOOR
+        candidate_tickers = {t for t, cached in PRELIM_CACHE.items()
+                             if t in frames and cached and len(cached) > 1
+                             and isinstance(cached[1], dict)
+                             and cached[1].get("total_score", 0) >= ShadowTradeLedger.SHADOW_FLOOR}
+
+        target_tickers = [t for t in frames if t in (open_tickers | candidate_tickers)]
+
         open_since = {}
         for t in ShadowTradeLedger.load_open():
             tk_ = t.get("ticker")
@@ -649,10 +653,8 @@ def run_continuous_quant_hunter():
                         "high": float(fresh['high'].max()),
                         "low": float(fresh['low'].min())}
 
-        # Sequentially this was 27 round-trips and 5.6s — 47% of the entire warm scan,
-        # spent waiting on the network rather than computing anything.
         with ThreadPoolExecutor(max_workers=MAX_FETCH_WORKERS) as pool:
-            for fut in as_completed([pool.submit(_m1, tk) for tk in open_tickers]):
+            for fut in as_completed([pool.submit(_m1, tk) for tk in target_tickers]):
                 try:
                     res = fut.result()
                 except Exception:
@@ -815,8 +817,18 @@ def run_continuous_quant_hunter():
             features["factors_passed"] = signal.get("factors_passed", [])
             features["reward_risk"] = round(rr, 3)
             features["sl_pct"] = round(sl_pct, 5)
+
+            # ML Calibrated Score Model
+            score_mod = CalibratedScoreModel.score(features, direction, signal.get("timeframe_alignment", 0))
+            model_avail = bool(score_mod.get("available"))
+            model_score = score_mod.get("score") if model_avail else None
+            model_prob = score_mod.get("prob") if model_avail else None
+            effective_score = model_score if (model_avail and model_score is not None) else score
+
+            # WinRateCalibrator bin lookup stays on the pillar/adjusted scale `score`
             cal = WinRateCalibrator.calibrated_win_rate(score, features)
-            win_rate = cal["win_rate"]          # None while uncalibrated — never faked
+            # Kelly position sizing consumes model_prob directly when model is available
+            win_rate = model_prob if (model_avail and model_prob is not None) else cal["win_rate"]
 
             # With no measured edge, Kelly has nothing to optimise. Size at the floor.
             kelly = (kelly_position_size(win_rate, rr, ACCOUNT_BALANCE) if win_rate is not None
@@ -838,14 +850,17 @@ def run_continuous_quant_hunter():
             gain_usd = round(notional * tp_pct, 2)
             roi_pct = round((gain_usd / max(margin, 0.01)) * 100, 1)
 
-            ScoreStabilityTracker.record(ticker, direction, score)
+            ScoreStabilityTracker.record(ticker, direction, effective_score)
 
             candidates.append({
                 "ticker": ticker, "direction": direction, "entry": entry, "sl": sl,
                 "tp": primary_tp, "tp_ladder": tp_ladder, "sl_pct": sl_pct, "tp_pct": tp_pct,
-                "rr": rr, "total_score": score, "calibrated_win_rate": win_rate,
+                "rr": rr, "total_score": effective_score, "calibrated_win_rate": win_rate,
                 "pillar_score": signal.get("pillar_score"),
+                "adjusted_score": score,
                 "learned_adjustment": signal.get("learned_adjustment"),
+                "model_score": model_score,
+                "model_prob": model_prob,
                 "calibration": cal, "recommendation_label": signal["recommendation_label"],
                 "factors_passed": signal.get("factors_passed", []),
                 "factors_failed": signal.get("factors_failed", []),
