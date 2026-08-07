@@ -30,6 +30,7 @@ from audit.score_model import CalibratedScoreModel
 from audit.score_tracker import ScoreStabilityTracker
 from audit.redis_state_sync import UnifiedStateSync as GitStateSync
 from data.exchange_feed import BitunixWeexLiveFeed
+from data.liquidation_proxy import LiquidationProxy
 from data.derivatives_feed import DerivativesIntelligence
 from news.market_universe import DynamicMarketUniverse
 from news.news_intelligence import PerAssetNewsIntelligence
@@ -872,6 +873,17 @@ def run_continuous_quant_hunter():
             # measured on weekdays only. These make the weekend answerable.
             features.update(market_clock_features())
             features["range_1h_pct"] = realised_range_pct(f["df_15m"])
+            # Liquidation cascade read, derived from OI destruction rather than a paid
+            # feed. Captured only; the model decides whether it carries any signal.
+            try:
+                _d15 = f["df_15m"]
+                _chg = ((float(_d15['close'].iloc[-1]) - float(_d15['close'].iloc[-13]))
+                        / float(_d15['close'].iloc[-13]) * 100.0) if len(_d15) > 13 else 0.0
+                features.update(LiquidationProxy.features(LiquidationProxy.analyze(
+                    (derivatives or {}).get("open_interest"), _chg,
+                    (derivatives or {}).get("crowding"))))
+            except Exception:
+                pass
 
             # ML Calibrated Score Model
             score_mod = CalibratedScoreModel.score(features, direction, signal.get("timeframe_alignment", 0))
