@@ -562,6 +562,56 @@ def build_tp_ladder(entry: float, sl: float, direction: str, atr: float,
     return [format_price_raw(t) for t in targets[:4]]
 
 
+def market_clock_features(now_utc=None) -> dict:
+    """
+    Weekend / US-session context, RECORDED rather than acted on.
+
+    A calendar blackout would delete the only data that could answer whether weekend
+    setups are worth taking — the same mistake as blocking entries around news events.
+    These are captured at trade-open so the ledger can measure the effect, and a gate
+    can be set later from evidence instead of assertion.
+
+    US regular hours are 13:30-20:00 UTC (09:30-16:00 ET) while the US is on EDT.
+    """
+    u = now_utc or datetime.now(timezone.utc)
+    minutes = u.hour * 60 + u.minute
+    is_weekend = u.weekday() >= 5
+
+    target = u.replace(hour=13, minute=30, second=0, microsecond=0)
+    if u >= target:
+        target += timedelta(days=1)
+    while target.weekday() >= 5:            # US cash market does not open Sat/Sun
+        target += timedelta(days=1)
+
+    return {
+        "is_weekend": is_weekend,
+        "is_rth": (not is_weekend) and (810 <= minutes < 1200),
+        "hours_to_us_open": round((target - u).total_seconds() / 3600.0, 2),
+        "utc_weekday": u.weekday(),
+        "utc_hour": u.hour,
+    }
+
+
+def realised_range_pct(df_15m, bars: int = 4):
+    """
+    Absolute realised range over the prior hour, as a percentage of price.
+
+    atr_percentile cannot express this: it is RELATIVE to an asset's own recent history,
+    so a genuinely dead market still reads mid-range once it has been dead a while. This
+    is the absolute measure — how far price actually travelled — which is what "stuck at
+    the same price for hours" means. Closed bars only; the forming bar is incomplete.
+    """
+    try:
+        if df_15m is None or len(df_15m) < bars + 1:
+            return None
+        w = df_15m.iloc[-(bars + 1):-1]
+        hi, lo = float(w['high'].max()), float(w['low'].min())
+        ref = float(w['close'].iloc[-1])
+        return round((hi - lo) / ref * 100.0, 4) if ref else None
+    except Exception:
+        return None
+
+
 # ============================================================
 # MAIN SCAN
 # ============================================================
@@ -817,6 +867,11 @@ def run_continuous_quant_hunter():
             features["factors_passed"] = signal.get("factors_passed", [])
             features["reward_risk"] = round(rr, 3)
             features["sl_pct"] = round(sl_pct, 5)
+            # Captured, NOT gated on. Weekday data says a liveness filter at entry costs
+            # more than it saves (every threshold tested lowered average R), but that is
+            # measured on weekdays only. These make the weekend answerable.
+            features.update(market_clock_features())
+            features["range_1h_pct"] = realised_range_pct(f["df_15m"])
 
             # ML Calibrated Score Model
             score_mod = CalibratedScoreModel.score(features, direction, signal.get("timeframe_alignment", 0))
