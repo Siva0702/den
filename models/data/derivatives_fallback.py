@@ -64,7 +64,7 @@ class BybitDerivativesFallback:
 
     # ------------------------------------------------------------------
     @classmethod
-    def get_funding(cls, ticker: str) -> dict:
+    def _bybit_funding(cls, ticker: str) -> dict:
         sym = cls._symbol(ticker)
         res = cls._get(f"by:tick:{sym}", "/v5/market/tickers",
                        {"category": "linear", "symbol": sym})
@@ -100,7 +100,7 @@ class BybitDerivativesFallback:
         }
 
     @classmethod
-    def get_open_interest_delta(cls, ticker: str, period: str = "15m") -> dict:
+    def _bybit_oi(cls, ticker: str, period: str = "15m") -> dict:
         sym = cls._symbol(ticker)
         iv = {"5m": "5min", "15m": "15min", "30m": "30min", "1h": "1h"}.get(period, "15min")
         res = cls._get(f"by:oi:{sym}:{iv}", "/v5/market/open-interest",
@@ -129,7 +129,7 @@ class BybitDerivativesFallback:
         }
 
     @classmethod
-    def get_crowding(cls, ticker: str, period: str = "15m") -> dict:
+    def _bybit_crowding(cls, ticker: str, period: str = "15m") -> dict:
         sym = cls._symbol(ticker)
         iv = {"5m": "5min", "15m": "15min", "30m": "30min", "1h": "1h"}.get(period, "15min")
         res = cls._get(f"by:ls:{sym}:{iv}", "/v5/market/account-ratio",
@@ -161,3 +161,128 @@ class BybitDerivativesFallback:
             "is_extreme": long_acct >= 0.75 or long_acct <= 0.25,
             "source": "bybit",
         }
+
+    # ------------------------------------------------------------------
+    # Tier 3: Bitget. Bybit restricts US IPs just as Binance does, so a single
+    # fallback was not actually a fallback — it swapped one blocked venue for
+    # another. Bitget is already proven reachable from Render by the kline feed.
+    # ------------------------------------------------------------------
+    BG = "https://api.bitget.com"
+    PT = {"productType": "USDT-FUTURES"}
+
+    @classmethod
+    def _bg(cls, key, path, params):
+        now = time.time()
+        with cls._lock:
+            hit = cls._cache.get(key)
+            if hit and hit[1] > now:
+                return hit[0]
+        payload = None
+        try:
+            r = requests.get(f"{cls.BG}{path}", params=params,
+                             headers=cls.HEADERS, timeout=cls.TIMEOUT)
+            if r.status_code == 200:
+                j = r.json()
+                if str(j.get("code")) == "00000":
+                    payload = j.get("data")
+        except Exception:
+            payload = None
+        with cls._lock:
+            cls._cache[key] = (payload, now + (cls.TTL if payload else cls.TTL_NEGATIVE))
+        return payload
+
+    @classmethod
+    def _bitget_funding(cls, ticker):
+        sym = cls._symbol(ticker)
+        d = cls._bg(f"bg:f:{sym}", "/api/v2/mix/market/current-fund-rate",
+                    dict(symbol=sym, **cls.PT))
+        if not d:
+            return {"available": False}
+        try:
+            rate = float((d[0] if isinstance(d, list) else d).get("fundingRate"))
+        except (TypeError, ValueError, IndexError, AttributeError):
+            return {"available": False}
+        ann = rate * 3 * 365
+        regime, bias = (("LONGS_OVERPAYING", "SHORT") if rate > 0.0005 else
+                        ("SHORTS_OVERPAYING", "LONG") if rate < -0.0005 else
+                        ("NEUTRAL", "NONE"))
+        return {"available": True, "funding_rate": round(rate, 8),
+                "funding_annualised_pct": round(ann * 100, 2),
+                "mark_index_premium_pct": 0.0, "funding_regime": regime,
+                "contrarian_bias": bias, "is_extreme": abs(rate) > 0.001,
+                "source": "bitget"}
+
+    @classmethod
+    def _bitget_oi(cls, ticker, period="15m"):
+        sym = cls._symbol(ticker)
+        d = cls._bg(f"bg:oi:{sym}", "/api/v2/mix/market/open-interest",
+                    dict(symbol=sym, **cls.PT))
+        try:
+            lst = (d or {}).get("openInterestList") or []
+            cur = float(lst[0]["size"])
+        except (TypeError, ValueError, IndexError, KeyError):
+            return {"available": False}
+        # Bitget exposes only a point-in-time value; deltas need history we do not
+        # have here. Report the level and leave the deltas explicitly absent rather
+        # than emitting 0.0, which the model would read as "no change".
+        return {"available": True, "oi_latest": cur,
+                "oi_change_1bar_pct": None, "oi_change_12bar_pct": None,
+                "oi_rising": None, "oi_falling": None, "source": "bitget"}
+
+    @classmethod
+    def _bitget_crowding(cls, ticker, period="15m"):
+        sym = cls._symbol(ticker)
+        d = cls._bg(f"bg:ls:{sym}", "/api/v2/mix/market/account-long-short",
+                    dict(symbol=sym, period="1h", **cls.PT))
+        try:
+            row = d[0] if isinstance(d, list) else d
+            lp = float(row.get("longAccountRatio"))
+        except (TypeError, ValueError, IndexError, AttributeError):
+            return {"available": False}
+        sp = 1.0 - lp
+        crowd, contra = (("CROWDED_LONG", "SHORT") if lp >= 0.70 else
+                         ("CROWDED_SHORT", "LONG") if lp <= 0.30 else
+                         ("BALANCED", "NONE"))
+        return {"available": True, "long_account_pct": round(lp * 100, 1),
+                "short_account_pct": round(sp * 100, 1),
+                "long_short_ratio": round(lp / sp, 3) if sp else 0.0,
+                "crowding": crowd, "contrarian_bias": contra,
+                "is_extreme": lp >= 0.75 or lp <= 0.25, "source": "bitget"}
+
+    # ---- public dispatchers: try each venue, report which one answered ----
+    _logged = set()
+
+    @classmethod
+    def _chain(cls, name, ticker, fns):
+        for fn in fns:
+            try:
+                r = fn(ticker)
+            except Exception:
+                r = {"available": False}
+            if r.get("available"):
+                tag = f"{name}:{r.get('source')}"
+                if tag not in cls._logged:
+                    cls._logged.add(tag)
+                    print(f"[derivatives] {name} served by {r.get('source')}", flush=True)
+                return r
+        if name not in cls._logged:
+            cls._logged.add(name)
+            print(f"[derivatives] {name} UNAVAILABLE from every venue "
+                  f"(binance/bybit/bitget all refused)", flush=True)
+        return {"available": False}
+
+    @classmethod
+    def get_funding(cls, ticker):
+        return cls._chain("funding", ticker, [cls._bybit_funding, cls._bitget_funding])
+
+    @classmethod
+    def get_open_interest_delta(cls, ticker, period="15m"):
+        return cls._chain("open_interest", ticker,
+                          [lambda t: cls._bybit_oi(t, period),
+                           lambda t: cls._bitget_oi(t, period)])
+
+    @classmethod
+    def get_crowding(cls, ticker, period="15m"):
+        return cls._chain("crowding", ticker,
+                          [lambda t: cls._bybit_crowding(t, period),
+                           lambda t: cls._bitget_crowding(t, period)])

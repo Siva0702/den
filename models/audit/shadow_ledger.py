@@ -1126,6 +1126,8 @@ class ShadowTradeLedger:
         equity = starting_capital
         peak = starting_capital
         max_dd = 0.0
+        ruined = False
+        ruin_trade = None
         wins = losses = 0
         r_total = 0.0
         for t in closed:
@@ -1139,9 +1141,16 @@ class ShadowTradeLedger:
             r = float(t.get("pnl_pct", 0.0) or 0.0) / sl_pct
             r_total += r
             equity += risk_per_trade * r
+            # A modelled account cannot go below zero. Letting it run negative produced
+            # "max drawdown 103%", which reads as a data error rather than what it is:
+            # the account was wiped part-way through and every later trade is fictional.
+            if equity <= 0 and not ruined:
+                ruined = True
+                ruin_trade = wins + losses + 1
+            equity = max(equity, 0.0)
             peak = max(peak, equity)
             dd = (peak - equity) / peak * 100 if peak else 0.0
-            max_dd = max(max_dd, dd)
+            max_dd = min(max(max_dd, dd), 100.0)
             if t.get("is_win"):
                 wins += 1
             else:
@@ -1157,6 +1166,8 @@ class ShadowTradeLedger:
             "total_R": round(r_total, 2),
             "avg_R": round(r_total / n, 3) if n else 0.0,
             "max_drawdown_pct": round(max_dd, 2),
+            "account_ruined": ruined,
+            "ruined_at_trade": ruin_trade,
             "trades": n,
         }
 

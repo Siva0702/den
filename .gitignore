@@ -25,3 +25,4 @@ models/audit/backtest_closed.json
 models/audit/upgrade_proposals.json
 models/audit/*.db
 models/audit/*export.json
+models/audit/dispatch_ledger.json

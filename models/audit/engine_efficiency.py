@@ -67,7 +67,12 @@ class EngineEfficiencyTracker:
         total = data["total_wins"] + data["total_losses"]
         data["realized_win_rate"] = round((data["total_wins"] / total) * 100, 1) if total > 0 else 0.0
         data["total_engine_pnl_usd"] = round(data["total_engine_pnl_usd"] + pnl_usd, 2)
-        data["profit_factor"] = round(data["gross_wins_usd"] / max(data["gross_losses_usd"], 0.01), 2)
+        # With zero losses this divided by a 0.01 floor and printed "27040.0", which
+        # reads as a spectacular profit factor and is actually just $270.40/$0.01.
+        # Undefined is the honest answer until there is a loss to divide by.
+        _gl = data.get("gross_losses_usd") or 0.0
+        data["profit_factor"] = (round(data["gross_wins_usd"] / _gl, 2)
+                                 if _gl > 0.0 else None)
 
         # Per-ticker tracking for self-learning
         if "per_ticker" not in data:

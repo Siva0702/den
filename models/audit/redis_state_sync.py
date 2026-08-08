@@ -24,6 +24,7 @@ class UpstashRedisStateSync:
     STATE_FILES = {
         "models/audit/shadow_open.json": "den:shadow_open",
         "models/audit/shadow_closed.json": "den:shadow_closed",
+        "models/audit/dispatch_ledger.json": "den:dispatch_ledger",
         "models/audit/learned_lexicon.json": "den:learned_lexicon",
         "models/audit/news_pending.json": "den:news_pending",
         "models/audit/event_outcomes.json": "den:event_outcomes",

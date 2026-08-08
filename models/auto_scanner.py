@@ -25,6 +25,7 @@ from alerts.signal_cooldown import SignalCooldownEngine
 from alerts.telegram_bot import TelegramAlertBot
 from audit.engine_efficiency import EngineEfficiencyTracker
 from audit.shadow_ledger import ShadowTradeLedger
+from audit.dispatch_ledger import DispatchLedger
 from audit.calibration import WinRateCalibrator
 from audit.score_model import CalibratedScoreModel
 from audit.score_tracker import ScoreStabilityTracker
@@ -679,7 +680,16 @@ def run_continuous_quant_hunter():
                              and isinstance(cached[1], dict)
                              and cached[1].get("total_score", 0) >= ShadowTradeLedger.SHADOW_FLOOR}
 
-        target_tickers = [t for t in frames if t in (open_tickers | candidate_tickers)]
+        # DISPATCHED POSITIONS FIRST. These carry real money and were the ONLY book
+        # not on 1m: `open_tickers` is the shadow ledger, and position tickers are
+        # skipped during prelim scoring so they never reached `candidate_tickers`
+        # either. They resolved TP/SL against a cached 15m close up to 15 minutes
+        # stale — the exact defect Rule 1 exists to prevent, on the only trades where
+        # being wrong costs money.
+        position_tickers = {p.get("ticker") for p in active_positions
+                            if isinstance(p, dict) and p.get("ticker") in frames}
+        target_tickers = [t for t in frames
+                          if t in (position_tickers | open_tickers | candidate_tickers)]
 
         open_since = {}
         for t in ShadowTradeLedger.load_open():
@@ -728,7 +738,9 @@ def run_continuous_quant_hunter():
         direction = (pos or {}).get("direction", "LONG")
         structure_flipped = monitor.detect_structure_break(df15, direction)
         try:
-            monitor.check_active_positions(ticker, price, reg_multiplier, structure_flipped, df15)
+            _pm = price_map.get(ticker) or {}
+            monitor.check_active_positions(ticker, price, reg_multiplier, structure_flipped, df15,
+                                           bar_high=_pm.get("high"), bar_low=_pm.get("low"))
         except Exception as e:
             print(f"[!] Position monitor error on {ticker}: {e}", flush=True)
 
@@ -907,7 +919,14 @@ def run_continuous_quant_hunter():
             # Kelly vetoed this bet: it is barred from DISPATCH, but still tracked as a
             # shadow trade so the veto itself can be proven right or wrong from outcomes.
             kelly_vetoed = bool(kelly.get("veto"))
-            raw_lev = max(min(int(round(1.0 / max(sl_pct * 2.5, 0.01))), 40), 5)
+            # Request cap raised 40 -> 50 so the BINDING constraint is liquidation
+            # distance and the venue cap, not an arbitrary number. Leverage does not
+            # change risk while the stop holds — risk is stop distance x size. It
+            # changes margin consumed, so freeing margin lets one $1000 account carry
+            # more concurrent positions at the same risk per trade. The liquidation
+            # cap in get_calibrated_leverage still trims anything that would put
+            # liquidation near the stop.
+            raw_lev = max(min(int(round(1.0 / max(sl_pct * 2.5, 0.01))), 50), 5)
             lev_meta = ExchangeLeverageEngine.get_calibrated_leverage(ticker, raw_lev, sl_pct=sl_pct)
             leverage = lev_meta["recommended_leverage"]
 
@@ -928,7 +947,15 @@ def run_continuous_quant_hunter():
                 "learned_adjustment": signal.get("learned_adjustment"),
                 "model_score": model_score,
                 "model_prob": model_prob,
-                "calibration": cal, "recommendation_label": signal["recommendation_label"],
+                # Label off the score the GATES use. It was computed inside the
+                # confluence engine from the pillar sum (>=85/75/55), so a setup could
+                # dispatch at model 89 while displaying "NO TRADE" from a pillar 40.
+                "calibration": cal,
+                "recommendation_label": (
+                    "\U0001F525 SURE SHOT" if effective_score >= 90 else
+                    "\u26A1 HIGH CONVICTION" if effective_score >= 78 else
+                    "\u2705 QUALIFIED" if effective_score >= 60 else
+                    "\u274C NO TRADE") if model_avail else signal["recommendation_label"],
                 "factors_passed": signal.get("factors_passed", []),
                 "factors_failed": signal.get("factors_failed", []),
                 "reasoning": signal.get("reasoning", ""),
@@ -1082,6 +1109,7 @@ def run_continuous_quant_hunter():
 
             dispatch_signal(best, stability, reg_warning, relaxed)
             dispatched_this_scan.append({"ticker": best["ticker"], "direction": best["direction"]})
+            DispatchLedger.record_dispatch(best)
             signals_dispatched += 1
             last_signal_time = time.time()
             signal_timestamps.append(last_signal_time)

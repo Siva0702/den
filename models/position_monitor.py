@@ -232,7 +232,7 @@ class ActivePositionMonitor:
         self.send_telegram_alert(msg)
         print(f"[decay] {ticker} {decay['recommendation']} score={decay['decay_score']}", flush=True)
 
-    def check_active_positions(self, ticker: str, current_price: float, sentiment_multiplier: float, structure_flipped: bool, df_15m=None):
+    def check_active_positions(self, ticker: str, current_price: float, sentiment_multiplier: float, structure_flipped: bool, df_15m=None, bar_high: float = None, bar_low: float = None):
         positions = self.load_positions()
         if not positions:
             return
@@ -253,8 +253,19 @@ class ActivePositionMonitor:
             win_rate_at_entry = pos.get("win_rate", 0.0)
             user_positioned = pos.get("user_positioned", False)
 
-            tp_hit = (direction == "LONG" and current_price >= tp) or (direction == "SHORT" and current_price <= tp)
-            sl_hit = (direction == "LONG" and current_price <= sl) or (direction == "SHORT" and current_price >= sl)
+            # Use the 1m bar RANGE, not a point sample. A scalar close cannot see a
+            # wick that pierced the stop between scans, so stops were being missed and
+            # the trade kept running on paper after it was already dead in reality.
+            hi = float(bar_high) if bar_high else current_price
+            lo = float(bar_low) if bar_low else current_price
+            if direction == "LONG":
+                tp_hit, sl_hit = hi >= tp, lo <= sl
+            else:
+                tp_hit, sl_hit = lo <= tp, hi >= sl
+            # A bar that touched both is a stop-out: the stop is protective and must be
+            # assumed to trigger first unless proven otherwise.
+            if tp_hit and sl_hit:
+                tp_hit = False
 
             if tp_hit:
                 alert_key = f"{ticker}_TP_HIT_{int(pos.get('epoch_time', 0))}"
@@ -286,7 +297,7 @@ class ActivePositionMonitor:
 📊 **ENGINE ACCURACY**
 • Win Rate: `{eff['realized_win_rate']}%` ({eff['total_wins']}W / {eff['total_losses']}L)
 • Net PnL: `${eff['total_engine_pnl_usd']:,.2f} USDT`
-• Profit Factor: `{eff['profit_factor']}`
+• Profit Factor: `{eff['profit_factor'] if eff.get('profit_factor') else '— (no losses yet)'}`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                     """
                     self.send_telegram_alert(msg)
@@ -394,4 +405,12 @@ class ActivePositionMonitor:
                 remaining_positions.append(pos)
 
         if modified:
+            # Diff BEFORE writing: anything dropped from the list has closed, whatever
+            # branch removed it. Hooking each exit branch leaves the next one unaudited.
+            try:
+                from audit.dispatch_ledger import DispatchLedger
+                DispatchLedger.sync_closures(positions, remaining_positions,
+                                             {ticker: {"close": current_price}})
+            except Exception as _e:
+                print(f"[!] dispatch audit sync failed: {_e}", flush=True)
             self.save_positions(remaining_positions)
