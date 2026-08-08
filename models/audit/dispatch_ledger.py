@@ -39,6 +39,15 @@ class DispatchLedger:
     """
 
     MAX_RECORDS = 5000
+
+    # Bitunix / WEEX USDT-perp fees. Taker on BOTH legs is the conservative
+    # assumption: a market entry and a stop-out are both taker. This is charged on
+    # NOTIONAL, not margin, so at high leverage it is not a rounding error — at 100x a
+    # 0.06% round trip costs 12% of the margin posted. Reporting gross P&L at these
+    # leverages materially overstates the result.
+    TAKER_FEE = 0.0006          # 0.06% per side
+    MAKER_FEE = 0.0002
+    FUNDING_INTERVAL_H = 8.0
     _lock = threading.Lock()
 
     # ------------------------------------------------------------------
@@ -144,10 +153,37 @@ class DispatchLedger:
                 return False
 
             sign = 1.0 if str(dr).upper() == "LONG" else -1.0
-            pnl_pct = (exit_price - entry) / entry * 100.0 * sign
+            gross_pct = (exit_price - entry) / entry * 100.0 * sign
             sl_pct = abs(entry - stop) / entry * 100.0 if stop else 0.0
-            r_mult = (pnl_pct / sl_pct) if sl_pct else 0.0
             now = time.time()
+
+            # ---- COSTS -------------------------------------------------------
+            # Everything below is expressed as a % of NOTIONAL so it subtracts
+            # directly from the gross move, which keeps R honest: R must be measured
+            # net, or a 0.5% edge at 0.12% costs looks 24% better than it is.
+            lev = float(pos.get("leverage") or pos.get("chosen_leverage") or 0) or None
+            margin = float(pos.get("margin") or pos.get("final_margin") or 0.0)
+            notional = margin * lev if (margin and lev) else None
+
+            fee_pct = cls.TAKER_FEE * 2 * 100.0        # open + close, both taker
+
+            opened = float(pos.get("epoch_time") or 0.0)
+            hold_h = max((now - opened) / 3600.0, 0.0) if opened else 0.0
+            # Funding is charged only to positions open AT a settlement stamp, so a
+            # 46-minute trade usually pays none. Count the stamps actually crossed.
+            settlements = int(hold_h // cls.FUNDING_INTERVAL_H)
+            fr = pos.get("funding_rate")
+            try:
+                fr = float(fr) if fr is not None else 0.0
+            except (TypeError, ValueError):
+                fr = 0.0
+            # Longs pay positive funding, shorts receive it.
+            funding_pct = settlements * fr * 100.0 * sign
+
+            cost_pct = fee_pct + funding_pct
+            pnl_pct = gross_pct - cost_pct
+            r_mult = (pnl_pct / sl_pct) if sl_pct else 0.0
+            gross_r = (gross_pct / sl_pct) if sl_pct else 0.0
 
             with cls._lock:
                 rows = cls.load()
@@ -157,6 +193,16 @@ class DispatchLedger:
                             and r.get("direction") == dr):
                         target = r
                         break
+                if target is None:
+                    # Already completed (e.g. scratched at breakeven when the decay
+                    # alert fired) — the position keeps being monitored afterwards, so
+                    # the later TP/SL diff must not book the same trade twice.
+                    recent = [r for r in rows if r.get("ticker") == tk
+                              and r.get("direction") == dr
+                              and r.get("status") == "CLOSED"
+                              and now - float(r.get("closed_epoch") or 0) < 86400]
+                    if recent:
+                        return False
                 if target is None:
                     # Dispatched before this ledger existed, or by another path. Record
                     # it anyway — an orphan close is evidence, silence is not.
@@ -175,8 +221,17 @@ class DispatchLedger:
                     "exit_reason": reason,
                     "closed_epoch": now,
                     "closed_time": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(now)),
-                    "pnl_pct": round(pnl_pct, 4),
-                    "r_multiple": round(r_mult, 4),
+                    "gross_pnl_pct": round(gross_pct, 4),
+                    "fee_pct": round(fee_pct, 4),
+                    "funding_pct": round(funding_pct, 4),
+                    "funding_settlements": settlements,
+                    "total_cost_pct": round(cost_pct, 4),
+                    "notional": round(notional, 2) if notional else None,
+                    "fee_usd": round(notional * fee_pct / 100.0, 2) if notional else None,
+                    "hold_hours": round(hold_h, 3),
+                    "pnl_pct": round(pnl_pct, 4),          # NET of fees and funding
+                    "gross_r": round(gross_r, 4),
+                    "r_multiple": round(r_mult, 4),        # NET
                     "is_win": r_mult > 0,
                 })
                 cls._atomic_write(rows[-cls.MAX_RECORDS:])

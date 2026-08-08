@@ -233,6 +233,15 @@ class ActivePositionMonitor:
                f"\U0001F4CB **WHY IT IS DYING:**\n{factors}\n\n"
                f"_{decay['reason']}_\n{action}\n" + "\u2501" * 28)
         self.send_telegram_alert(msg)
+        # The user treats a scratch alert as an executed close at breakeven, so the
+        # audit must record it at that moment. Exit is the ENTRY price: scratching at
+        # market is flat on the move, and the only cost booked is fees.
+        try:
+            from audit.dispatch_ledger import DispatchLedger
+            DispatchLedger.record_close(pos, float(pos.get("entry_price") or price),
+                                        "SCRATCHED_BREAKEVEN")
+        except Exception as _e:
+            print(f"[!] dispatch audit (scratch) failed: {_e}", flush=True)
         print(f"[decay] {ticker} {decay['recommendation']} score={decay['decay_score']}", flush=True)
 
     def check_active_positions(self, ticker: str, current_price: float, sentiment_multiplier: float, structure_flipped: bool, df_15m=None, bar_high: float = None, bar_low: float = None):

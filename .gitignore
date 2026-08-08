@@ -27,3 +27,4 @@ models/audit/*.db
 models/audit/*export.json
 models/audit/dispatch_ledger.json
 models/audit/dispatch_ledger.json
+models/audit/dispatch_ledger.json

@@ -398,6 +398,69 @@ _{da['interpretation']}_
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
 
 
+def build_dispatch_report() -> str:
+    """Telegram view of the DISPATCHED signal ledger. Net of fees and funding."""
+    try:
+        from audit.dispatch_ledger import DispatchLedger
+        rows = DispatchLedger.load()
+        if not rows:
+            return ("\U0001F4E1 **DISPATCHED SIGNALS**\n" + "\u2501" * 28 +
+                    "\n_No dispatched signals recorded yet._\n"
+                    "The audit ledger starts at the first dispatch after deploy; "
+                    "signals sent before it existed were never persisted.")
+        closed = [r for r in rows if r.get("status") == "CLOSED"]
+        live = [r for r in rows if r.get("status") != "CLOSED"]
+        out = ["\U0001F4E1 **DISPATCHED SIGNALS**", "\u2501" * 28]
+        if live:
+            out.append(f"\U0001F7E1 **OPEN ({len(live)})**")
+            for r in sorted(live, key=lambda x: x.get("dispatched_epoch") or 0):
+                out.append(f"`{r.get('ticker'):<11}` {r.get('direction'):<5} "
+                           f"score `{(r.get('model_score') or 0):.0f}` "
+                           f"entry `{r.get('entry')}` lev `{r.get('leverage')}x`")
+            out.append("")
+        if closed:
+            out.append(f"\u2705 **CLOSED ({len(closed)})**")
+            tot_net = tot_fee = 0.0
+            for r in sorted(closed, key=lambda x: x.get("closed_epoch") or 0):
+                nz = r.get("notional") or 0.0
+                net = (r.get("pnl_pct") or 0.0) / 100.0 * nz
+                tot_net += net
+                tot_fee += r.get("fee_usd") or 0.0
+                out.append(f"`{r.get('ticker'):<11}` {str(r.get('exit_reason')):<20} "
+                           f"netR `{(r.get('r_multiple') or 0):+.2f}` `${net:+,.2f}`")
+            Rs = [float(r.get("r_multiple") or 0.0) for r in closed]
+            gRs = [float(r.get("gross_r") or 0.0) for r in closed]
+            w = sum(1 for r in closed if r.get("is_win"))
+            out += ["", "\u2501" * 28,
+                    f"\U0001F4CA **{w}W / {len(closed) - w}L** \u2014 "
+                    f"`{w / len(closed) * 100:.1f}%` accuracy",
+                    f"\U0001F4C8 total R gross `{sum(gRs):+.2f}` \u2192 "
+                    f"**NET `{sum(Rs):+.2f}`**",
+                    f"\U0001F4B8 fees paid `${tot_fee:,.2f}`",
+                    f"\U0001F4B0 net P&L `${tot_net:+,.2f}` \u2014 "
+                    f"equity `${1000 + tot_net:,.2f}`"]
+            if len(closed) < 20:
+                out.append(f"\n_{len(closed)} closed trades is too few to conclude "
+                           f"anything \u2014 this is a record, not evidence of edge._")
+        return "\n".join(out)
+    except Exception as e:
+        return f"\u26A0\uFE0F Dispatch report error: {e}"
+
+
+def build_help_report() -> str:
+    return ("\U0001F4D6 **DEN ENGINE \u2014 COMMANDS**\n" + "\u2501" * 28 + "\n"
+            "`/signals`  dispatched signals \u2014 net P&L, fees, open + closed\n"
+            "`/ledger`   shadow ledger \u2014 all paper trades, accuracy, equity\n"
+            "`/kelly`    Kelly-FUNDED cohort \u2014 trades Kelly backed\n"
+            "`/veto`     Kelly-VETOED cohort \u2014 trades Kelly refused\n"
+            "`/calendar` upcoming economic events and blackout windows\n"
+            "`/help`     this list\n\n"
+            "_Reply_ `positioned` _to a signal to mark that you took it._\n\n"
+            + "\u2501" * 28 + "\n"
+            "`/signals` is the only one measuring REAL dispatched trades. "
+            "`/ledger` is paper trades used for learning \u2014 a different book.")
+
+
 def poll_positioned_replies():
     global last_update_id
     while True:
@@ -429,6 +492,18 @@ def poll_positioned_replies():
                             telegram.send_alert(build_calendar_report())
                         except Exception as e:
                             print(f"[!] Calendar report error: {e}", flush=True)
+                        continue
+                    if text in ("/signals", "/dispatch", "/dispatched", "signals"):
+                        try:
+                            telegram.send_alert(build_dispatch_report())
+                        except Exception as e:
+                            print(f"[!] Dispatch report error: {e}", flush=True)
+                        continue
+                    if text in ("/help", "/commands", "help", "/start"):
+                        try:
+                            telegram.send_alert(build_help_report())
+                        except Exception as e:
+                            print(f"[!] Help report error: {e}", flush=True)
                         continue
                     if ("shadow" in text and "ledger" in text) or text in ("/ledger", "/shadow", "ledger"):
                         try:
