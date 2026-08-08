@@ -926,7 +926,12 @@ def run_continuous_quant_hunter():
             # more concurrent positions at the same risk per trade. The liquidation
             # cap in get_calibrated_leverage still trims anything that would put
             # liquidation near the stop.
-            raw_lev = max(min(int(round(1.0 / max(sl_pct * 2.5, 0.01))), 50), 5)
+            # No arbitrary ceiling. Ask for the most leverage the LIQUIDATION distance
+            # allows, and let the real venue cap trim it. The old `min(..., 50)` meant
+            # an asset offering 150x was held to 50x for no risk reason, wasting margin
+            # that could carry another position. Leverage does not change risk while the
+            # stop holds — it changes how much margin the same risk consumes.
+            raw_lev = max(ExchangeLeverageEngine.liquidation_safe_leverage(sl_pct), 5)
             lev_meta = ExchangeLeverageEngine.get_calibrated_leverage(ticker, raw_lev, sl_pct=sl_pct)
             leverage = lev_meta["recommended_leverage"]
 

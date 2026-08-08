@@ -218,8 +218,11 @@ class ActivePositionMonitor:
                   "reaching target \u2014 exiting here preserves most of the margin."
                   if urgent else
                   "\u26A1 **ACTION:** Move stop to breakeven, or scratch at market.")
+        # NOTE the explicit `+`. Without it Python concatenates the two adjacent string
+        # literals at compile time and `* 28` then repeats the HEADER as well as the
+        # rule, producing 28 copies of "LOSING MOMENTUM" in one alert.
         msg = (f"{head}\n"
-               "\u2501" * 28 + "\n"
+               + "\u2501" * 28 + "\n"
                f"\U0001F4C9 **DECAY SCORE:** `{decay['decay_score']:.0f}/100`\n"
                f"\U0001F4CD **Entry:** `{self._format_price(pos.get('entry_price', price))}`\n"
                f"\u26A1 **Now:** `{self._format_price(price)}`\n"

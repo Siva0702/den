@@ -109,6 +109,42 @@ class ExchangeLeverageEngine:
             return 1
         return max(int(1.0 / (sl_pct * buffer)), 1)
 
+    _bg_cache = {"data": None, "epoch": 0.0}
+
+    @classmethod
+    def bitget_max_leverage(cls, ticker: str):
+        """
+        Real per-asset venue cap, from a venue reachable in production.
+
+        live_max_leverage() asks Bybit, which (a) is not where these trades are placed
+        and (b) refuses US datacentre IPs, so on Render it returned None for every
+        asset and the cap silently fell back to a static table. Bitget answers, and one
+        bulk call covers all 741 contracts, so this costs a single request per hour.
+
+        Real spread: BTC 150x, AAPL 100x, SEI 75x, WIF 50x, SNOW 20x, ABNB 20x — the
+        static table cannot express that, and a flat cap throws away margin efficiency
+        on the assets that allow the most.
+        """
+        import time as _t
+        now = _t.time()
+        if not cls._bg_cache["data"] or now - cls._bg_cache["epoch"] > 3600:
+            try:
+                r = requests.get("https://api.bitget.com/api/v2/mix/market/contracts",
+                                 params={"productType": "USDT-FUTURES"},
+                                 headers=cls.HEADERS, timeout=8)
+                if r.status_code == 200:
+                    data = (r.json() or {}).get("data") or []
+                    cls._bg_cache = {
+                        "data": {x["symbol"]: int(float(x.get("maxLever") or 0))
+                                 for x in data if x.get("symbol")},
+                        "epoch": now}
+            except Exception:
+                pass
+        sym = {"PEPE/USDT": "1000PEPEUSDT", "SHIB/USDT": "1000SHIBUSDT",
+               "BONK/USDT": "1000BONKUSDT", "MATIC/USDT": "POLUSDT"}.get(
+            ticker, ticker.replace("/", "").upper())
+        return (cls._bg_cache["data"] or {}).get(sym) or None
+
     @classmethod
     def live_max_leverage(cls, ticker: str):
         """Real venue cap, or None if unavailable. Cached; never raises."""
@@ -175,6 +211,19 @@ class ExchangeLeverageEngine:
         sources = {"table": max_allowed}
         if live:
             sources["bybit"] = live
+        bg = cls.bitget_max_leverage(ticker)
+        if bg:
+            # The venue is ground truth; the static table is a hand-maintained guess
+            # that capped SEI at 50x when the exchange allows 75x, and AAPL at 50x
+            # against a real 100x. When the live figure exists the table must not
+            # override it — it remains only as fallback when the venue is unreachable.
+            sources.pop("table", None)
+            # Bybit is neither the execution venue nor reachable from production, so
+            # letting it bind imposes a limit from an exchange these trades never touch
+            # (it held SEI to 50x against a real 75x). Dropped whenever a live figure
+            # from an actual perp venue is available.
+            sources.pop("bybit", None)
+            sources["bitget"] = bg
         if venue_cap:
             sources["venue"] = venue_cap
             exchange_name = "Bitunix/WEEX"
