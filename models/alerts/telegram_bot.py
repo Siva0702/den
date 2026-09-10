@@ -28,6 +28,16 @@ class TelegramAlertBot:
                     data = response.json()
                     return data.get("result", {}).get("message_id")
                 else:
+                    # A Markdown parse failure is DETERMINISTIC — retrying the identical
+                    # payload three times can only fail three times, which is how every
+                    # /ledger and /signals reply was silently dropped. Outcome names like
+                    # SCRATCHED_BREAKEVEN and TP1_HIT contain underscores, which Telegram
+                    # reads as italic markers; unbalanced, the whole message is rejected.
+                    # Delivering unformatted beats delivering nothing.
+                    if response.status_code == 400 and "parse" in response.text.lower():
+                        payload.pop("parse_mode", None)
+                        print("[telegram] markdown rejected — resending as plain text")
+                        continue
                     print(f"[!] Telegram Alert Status Code {response.status_code} on Attempt {attempt}: {response.text}")
             except Exception as e:
                 print(f"[!] Telegram Alert Attempt {attempt} Failed: {e}")
@@ -52,6 +62,14 @@ class TelegramAlertBot:
                 if response.status_code == 200:
                     data = response.json()
                     return data.get("result", {}).get("message_id")
+                # This is the DISPATCH path. It previously swallowed every non-200 with
+                # no log at all, so a signal rejected by Telegram vanished without trace
+                # — the one message class where silent loss is least acceptable.
+                if response.status_code == 400 and "parse" in response.text.lower():
+                    payload.pop("parse_mode", None)
+                    print("[telegram] signal markdown rejected — resending as plain text")
+                    continue
+                print(f"[!] Telegram signal send failed {response.status_code}: {response.text[:200]}")
             except Exception as e:
                 print(f"[!] Telegram Alert Attempt {attempt} Failed: {e}")
             time.sleep(1)
