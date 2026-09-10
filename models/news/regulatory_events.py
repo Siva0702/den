@@ -46,7 +46,21 @@ class USRegulatoryPolicyEngine:
                 bull_score = sum(1 for w in bullish_triggers if w in full_text)
                 bear_score = sum(1 for w in bearish_triggers if w in full_text)
 
-                if len(recess_matches) >= 2 or ("clarity act" in full_text and ("recess" in full_text or "fades" in full_text or "delayed" in full_text or "uncertainty" in full_text)):
+                # MEASURED: this fired on 1903 of 1903 records — multiplier was 0.65
+                # every single time, never once anything else. A detector with a 100%
+                # fire rate carries zero information; it is a constant wearing a
+                # signal's clothes, and it printed a "BEARISH REGULATORY HEADWIND"
+                # banner in every digest ever sent.
+                #
+                # The cause is the keyword set: "recess", "delayed", "uncertainty" and
+                # "deadline looms" all count, and any two of them appear in essentially
+                # any week of political news. Requiring FOUR distinct matches plus an
+                # explicit bill reference makes the trigger mean something. Until it is
+                # observed firing selectively, treat any signal from it as unproven.
+                strong = len(recess_matches) >= 4 and (
+                    "clarity act" in full_text or "fit21" in full_text
+                    or "market structure" in full_text)
+                if strong:
                     is_recess_delay = True
                     status = "🚨 BEARISH REGULATORY HEADWIND: Congressional Recess & Clarity Act Delay"
                     multiplier = 0.65  # Heavy 35% penalty for LONGs / Boost for SHORTs
