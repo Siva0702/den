@@ -28,3 +28,17 @@ models/audit/*export.json
 models/audit/dispatch_ledger.json
 models/audit/dispatch_ledger.json
 models/audit/dispatch_ledger.json
+models/audit/calibration_model.json
+models/audit/event_calendar.json
+models/audit/event_outcomes.json
+models/audit/learned_lexicon.json
+models/audit/news_pending.json
+models/audit/regime_weights.json
+models/audit/score_model.json
+models/audit/shadow_open.json
+models/audit/shadow_missed.json
+models/portfolio/signal_cooldown.json
+models/portfolio/active_positions.json
+models/portfolio/notified_milestones.json
+models/portfolio/dispatched_signals.json
+models/portfolio/system_version.json
