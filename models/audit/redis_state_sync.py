@@ -218,10 +218,47 @@ class UpstashRedisStateSync:
                     try:
                         with open(abs_path, "r") as f:
                             content = f.read()
-                        if content.strip():
-                            ok, _ = cls._redis_cmd(["SET", redis_key, content])
-                            if ok:
-                                pushed_count += 1
+                        if not content.strip():
+                            continue
+
+                        # SYMMETRIC SAFETY GUARD.
+                        # pull_on_startup already refuses to restore empty data so a
+                        # Redis blip cannot wipe local state. Push had no such guard —
+                        # its only test was `content.strip()`, and the string "[]" is
+                        # non-empty text. So the reverse wipe was wide open: Redis
+                        # unreachable at boot -> pull fails -> engine writes [] locally
+                        # -> 15 minutes later push replaces 1904 records with [].
+                        #
+                        # A collection that has SHRUNK by more than half is also refused.
+                        # Ledgers only grow; a sudden collapse means local state is
+                        # broken, not that trades disappeared.
+                        try:
+                            parsed = json.loads(content)
+                        except Exception:
+                            parsed = None
+                        if isinstance(parsed, (list, dict)):
+                            if len(parsed) == 0:
+                                print(f"[redis-sync] REFUSED to push empty {rel_path} "
+                                      f"— would wipe remote state", flush=True)
+                                continue
+                            ok_r, remote = cls._redis_cmd(["GET", redis_key])
+                            if ok_r and remote:
+                                try:
+                                    r_parsed = json.loads(remote if isinstance(remote, str)
+                                                          else json.dumps(remote))
+                                    if isinstance(r_parsed, (list, dict)) and \
+                                            len(parsed) * 2 < len(r_parsed):
+                                        print(f"[redis-sync] REFUSED to push {rel_path}: "
+                                              f"local {len(parsed)} vs remote "
+                                              f"{len(r_parsed)} — suspicious shrink",
+                                              flush=True)
+                                        continue
+                                except Exception:
+                                    pass
+
+                        ok, _ = cls._redis_cmd(["SET", redis_key, content])
+                        if ok:
+                            pushed_count += 1
                     except Exception as e:
                         print(f"[redis-sync] Error pushing {rel_path}: {e}", flush=True)
 
