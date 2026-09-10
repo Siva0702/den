@@ -37,7 +37,6 @@ from news.market_universe import DynamicMarketUniverse
 from news.news_intelligence import PerAssetNewsIntelligence
 from news.event_calendar import ScheduledEventCalendar
 from news.event_outcomes import EventOutcomeLearner
-from news.regulatory_events import USRegulatoryPolicyEngine
 from position_monitor import ActivePositionMonitor
 
 load_dotenv()
@@ -723,9 +722,15 @@ def run_continuous_quant_hunter():
     efficiency_data = EngineEfficiencyTracker.load_efficiency_data()
     session_name, _ = get_current_session()
 
-    reg_data = USRegulatoryPolicyEngine.analyze_regulatory_climate()
-    reg_multiplier = reg_data.get("regulatory_multiplier", 1.0)
-    reg_warning = reg_data.get("warning_msg", "")
+    # USRegulatoryPolicyEngine archived 2026-09-10 — see
+    # models/_archive/unvalidated/WHY_REGULATORY_EVENTS_WAS_ARCHIVED.md
+    # It returned 0.65 on 1903 of 1903 records: a constant, not a signal. Regulatory
+    # catalysts already arrive through the event calendar with real proximity and
+    # asset-relevance weighting. reg_multiplier stays at 1.0 for signature compatibility
+    # (confluence_engine ignores it regardless).
+    reg_data = {"regulatory_status": "NEUTRAL", "regulatory_multiplier": 1.0}
+    reg_multiplier = 1.0
+    reg_warning = ""
 
     # Calendar refresh runs in its own daemon thread (see calendar_refresher). A cold
     # pull takes ~17s locally and far longer on a free-tier box, and it was blocking
@@ -1297,7 +1302,7 @@ def dispatch_signal(best: dict, stability: dict, reg_warning: str, relaxed: bool
     relaxed_line = ("\n⚠️ _Relaxed threshold engaged after "
                     f"{DRY_SPELL_HOURS:.0f}h without a signal — conviction below the usual "
                     f"{HARD_SCORE_FLOOR:.0f} floor._\n" if relaxed else "")
-    macro_line = f"\n🏛️ **MACRO:** _{reg_warning}_\n" if reg_warning else ""
+    macro_line = ""      # regulatory banner archived; reg_warning is always empty now
     stop_line = "\n".join(f"• {r}" for r in best["stop_rationale"][:2])
     traj = ScoreStabilityTracker.trajectory(ticker, direction)[-6:]
 
@@ -1459,7 +1464,6 @@ def send_hunting_digest(candidates, prelim, session_name, label, ist_str,
     msg = f"""🛰️ **DEN ENGINE HUNTING DIGEST** — {ist_str} ({label} cadence)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📊 **SESSION:** `{session_name}` | Dispatch floor: `{active_floor:.0f}/100`{" ⚠️ relaxed" if relaxed else ""}
-🏛️ **MACRO:** _{reg_data.get('regulatory_status', 'NEUTRAL')}_
 
 🧠 **CALIBRATION:** {cal_line}
 👁️ **SHADOW BOOK:** `{shadow['open']}` open | `{shadow['total']}` resolved | accuracy `{shadow['accuracy_pct']}%`
