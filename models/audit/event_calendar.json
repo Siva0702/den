@@ -1,293 +1,47 @@
 {
-  "generated_at": "2026-08-05T01:30:17.939761+00:00",
+  "generated_at": "2026-08-11T14:20:00.574592+00:00",
   "horizon_days": 30,
-  "event_count": 36,
+  "event_count": 34,
   "degraded_sources": [],
   "events": [
     {
       "kind": "MACRO",
-      "title": "OPEC-JMMC Meetings",
-      "country": "All",
-      "when_utc": "2026-08-02T09:15:00+00:00",
-      "tier": "MEDIUM",
+      "title": "Cash Rate",
+      "country": "AUD",
+      "when_utc": "2026-08-11T04:30:00+00:00",
+      "tier": "HIGH",
+      "forecast": "4.35%",
+      "previous": "4.35%",
+      "symbol": null
+    },
+    {
+      "kind": "MACRO",
+      "title": "RBA Monetary Policy Statement",
+      "country": "AUD",
+      "when_utc": "2026-08-11T04:30:00+00:00",
+      "tier": "HIGH",
       "forecast": "",
       "previous": "",
       "symbol": null
     },
     {
       "kind": "MACRO",
-      "title": "CPI m/m",
-      "country": "CHF",
-      "when_utc": "2026-08-03T06:30:00+00:00",
+      "title": "RBA Rate Statement",
+      "country": "AUD",
+      "when_utc": "2026-08-11T04:30:00+00:00",
       "tier": "CRITICAL",
-      "forecast": "-0.1%",
-      "previous": "0.0%",
-      "symbol": null
-    },
-    {
-      "kind": "MACRO",
-      "title": "ISM Manufacturing PMI",
-      "country": "USD",
-      "when_utc": "2026-08-03T14:00:00+00:00",
-      "tier": "HIGH",
-      "forecast": "54.0",
-      "previous": "53.3",
-      "symbol": null
-    },
-    {
-      "kind": "MACRO",
-      "title": "ISM Manufacturing Prices",
-      "country": "USD",
-      "when_utc": "2026-08-03T14:00:00+00:00",
-      "tier": "MEDIUM",
-      "forecast": "70.0",
-      "previous": "73.0",
-      "symbol": null
-    },
-    {
-      "kind": "MACRO",
-      "title": "JOLTS Job Openings",
-      "country": "USD",
-      "when_utc": "2026-08-04T14:00:00+00:00",
-      "tier": "MEDIUM",
-      "forecast": "7.44M",
-      "previous": "7.59M",
-      "symbol": null
-    },
-    {
-      "kind": "MACRO",
-      "title": "Employment Change q/q",
-      "country": "NZD",
-      "when_utc": "2026-08-04T22:45:00+00:00",
-      "tier": "HIGH",
-      "forecast": "0.1%",
-      "previous": "0.2%",
-      "symbol": null
-    },
-    {
-      "kind": "MACRO",
-      "title": "Unemployment Rate",
-      "country": "NZD",
-      "when_utc": "2026-08-04T22:45:00+00:00",
-      "tier": "CRITICAL",
-      "forecast": "5.4%",
-      "previous": "5.3%",
-      "symbol": null
-    },
-    {
-      "kind": "MACRO",
-      "title": "PPI m/m",
-      "country": "EUR",
-      "when_utc": "2026-08-05T09:00:00+00:00",
-      "tier": "CRITICAL",
-      "forecast": "-0.2%",
-      "previous": "0.2%",
-      "symbol": null
-    },
-    {
-      "kind": "EARNINGS",
-      "title": "LLY earnings (time-pre-market)",
-      "country": "USD",
-      "when_utc": "2026-08-05T11:00:00+00:00",
-      "tier": "CRITICAL",
-      "forecast": "$6.71",
-      "previous": "$6.31",
-      "symbol": "LLY",
-      "company": "Eli Lilly and Company"
-    },
-    {
-      "kind": "EARNINGS",
-      "title": "DIS earnings (time-pre-market)",
-      "country": "USD",
-      "when_utc": "2026-08-05T11:00:00+00:00",
-      "tier": "CRITICAL",
-      "forecast": "$1.88",
-      "previous": "$1.61",
-      "symbol": "DIS",
-      "company": "Walt Disney Company (The)"
-    },
-    {
-      "kind": "EARNINGS",
-      "title": "UBER earnings (time-pre-market)",
-      "country": "USD",
-      "when_utc": "2026-08-05T11:00:00+00:00",
-      "tier": "CRITICAL",
-      "forecast": "$0.83",
-      "previous": "$0.63",
-      "symbol": "UBER",
-      "company": "Uber Technologies, Inc."
-    },
-    {
-      "kind": "MACRO",
-      "title": "ADP Non-Farm Employment Change",
-      "country": "USD",
-      "when_utc": "2026-08-05T12:15:00+00:00",
-      "tier": "CRITICAL",
-      "forecast": "68K",
-      "previous": "98K",
-      "symbol": null
-    },
-    {
-      "kind": "MACRO",
-      "title": "ISM Services PMI",
-      "country": "USD",
-      "when_utc": "2026-08-05T14:00:00+00:00",
-      "tier": "MEDIUM",
-      "forecast": "54.5",
-      "previous": "54.0",
-      "symbol": null
-    },
-    {
-      "kind": "MACRO",
-      "title": "President Trump Speaks",
-      "country": "USD",
-      "when_utc": "2026-08-05T20:30:00+00:00",
-      "tier": "MEDIUM",
       "forecast": "",
       "previous": "",
       "symbol": null
     },
     {
       "kind": "MACRO",
-      "title": "Unemployment Rate",
-      "country": "CHF",
-      "when_utc": "2026-08-06T07:00:00+00:00",
+      "title": "RBA Press Conference",
+      "country": "AUD",
+      "when_utc": "2026-08-11T05:30:00+00:00",
       "tier": "CRITICAL",
-      "forecast": "3.1%",
-      "previous": "3.1%",
-      "symbol": null
-    },
-    {
-      "kind": "MACRO",
-      "title": "Unemployment Claims",
-      "country": "USD",
-      "when_utc": "2026-08-06T12:30:00+00:00",
-      "tier": "MEDIUM",
-      "forecast": "203K",
-      "previous": "197K",
-      "symbol": null
-    },
-    {
-      "kind": "MACRO",
-      "title": "Prelim Nonfarm Productivity q/q",
-      "country": "USD",
-      "when_utc": "2026-08-06T12:30:00+00:00",
-      "tier": "CRITICAL",
-      "forecast": "0.6%",
-      "previous": "0.8%",
-      "symbol": null
-    },
-    {
-      "kind": "EARNINGS",
-      "title": "ABNB earnings (time-after-hours)",
-      "country": "USD",
-      "when_utc": "2026-08-06T20:30:00+00:00",
-      "tier": "CRITICAL",
-      "forecast": "$1.20",
-      "previous": "$1.03",
-      "symbol": "ABNB",
-      "company": "Airbnb, Inc."
-    },
-    {
-      "kind": "EARNINGS",
-      "title": "MARA earnings (time-after-hours)",
-      "country": "USD",
-      "when_utc": "2026-08-06T20:30:00+00:00",
-      "tier": "CRITICAL",
-      "forecast": "($0.56)",
-      "previous": "($0.81)",
-      "symbol": "MARA",
-      "company": "MARA Holdings, Inc."
-    },
-    {
-      "kind": "EARNINGS",
-      "title": "CLSK earnings (time-after-hours)",
-      "country": "USD",
-      "when_utc": "2026-08-06T20:30:00+00:00",
-      "tier": "CRITICAL",
-      "forecast": "($0.30)",
-      "previous": "$0.78",
-      "symbol": "CLSK",
-      "company": "CleanSpark, Inc."
-    },
-    {
-      "kind": "MACRO",
-      "title": "Employment Change",
-      "country": "CAD",
-      "when_utc": "2026-08-07T12:30:00+00:00",
-      "tier": "HIGH",
-      "forecast": "17.8K",
-      "previous": "18.2K",
-      "symbol": null
-    },
-    {
-      "kind": "MACRO",
-      "title": "Unemployment Rate",
-      "country": "CAD",
-      "when_utc": "2026-08-07T12:30:00+00:00",
-      "tier": "CRITICAL",
-      "forecast": "6.5%",
-      "previous": "6.5%",
-      "symbol": null
-    },
-    {
-      "kind": "MACRO",
-      "title": "Average Hourly Earnings m/m",
-      "country": "USD",
-      "when_utc": "2026-08-07T12:30:00+00:00",
-      "tier": "HIGH",
-      "forecast": "0.3%",
-      "previous": "0.3%",
-      "symbol": null
-    },
-    {
-      "kind": "MACRO",
-      "title": "Non-Farm Employment Change",
-      "country": "USD",
-      "when_utc": "2026-08-07T12:30:00+00:00",
-      "tier": "CRITICAL",
-      "forecast": "85K",
-      "previous": "57K",
-      "symbol": null
-    },
-    {
-      "kind": "MACRO",
-      "title": "Unemployment Rate",
-      "country": "USD",
-      "when_utc": "2026-08-07T12:30:00+00:00",
-      "tier": "CRITICAL",
-      "forecast": "4.2%",
-      "previous": "4.2%",
-      "symbol": null
-    },
-    {
-      "kind": "MACRO",
-      "title": "Ivey PMI",
-      "country": "CAD",
-      "when_utc": "2026-08-07T14:00:00+00:00",
-      "tier": "MEDIUM",
-      "forecast": "55.4",
-      "previous": "56.2",
-      "symbol": null
-    },
-    {
-      "kind": "MACRO",
-      "title": "CPI y/y",
-      "country": "CNY",
-      "when_utc": "2026-08-09T01:30:00+00:00",
-      "tier": "CRITICAL",
-      "forecast": "0.8%",
-      "previous": "1.0%",
-      "symbol": null
-    },
-    {
-      "kind": "MACRO",
-      "title": "PPI y/y",
-      "country": "CNY",
-      "when_utc": "2026-08-09T01:30:00+00:00",
-      "tier": "CRITICAL",
-      "forecast": "3.9%",
-      "previous": "4.1%",
+      "forecast": "",
+      "previous": "",
       "symbol": null
     },
     {
@@ -302,15 +56,215 @@
       "company": "Super Micro Computer, Inc."
     },
     {
-      "kind": "EARNINGS",
-      "title": "CSCO earnings (time-not-supplied)",
+      "kind": "MACRO",
+      "title": "German Final CPI m/m",
+      "country": "EUR",
+      "when_utc": "2026-08-12T06:00:00+00:00",
+      "tier": "CRITICAL",
+      "forecast": "0.8%",
+      "previous": "0.8%",
+      "symbol": null
+    },
+    {
+      "kind": "MACRO",
+      "title": "Core CPI m/m",
       "country": "USD",
-      "when_utc": "2026-08-12T20:00:00+00:00",
+      "when_utc": "2026-08-12T12:30:00+00:00",
+      "tier": "CRITICAL",
+      "forecast": "0.2%",
+      "previous": "0.0%",
+      "symbol": null
+    },
+    {
+      "kind": "MACRO",
+      "title": "Core CPI y/y",
+      "country": "USD",
+      "when_utc": "2026-08-12T12:30:00+00:00",
+      "tier": "CRITICAL",
+      "forecast": "2.5%",
+      "previous": "2.6%",
+      "symbol": null
+    },
+    {
+      "kind": "MACRO",
+      "title": "CPI m/m",
+      "country": "USD",
+      "when_utc": "2026-08-12T12:30:00+00:00",
+      "tier": "CRITICAL",
+      "forecast": "0.1%",
+      "previous": "-0.4%",
+      "symbol": null
+    },
+    {
+      "kind": "MACRO",
+      "title": "CPI y/y",
+      "country": "USD",
+      "when_utc": "2026-08-12T12:30:00+00:00",
+      "tier": "CRITICAL",
+      "forecast": "3.4%",
+      "previous": "3.5%",
+      "symbol": null
+    },
+    {
+      "kind": "EARNINGS",
+      "title": "CSCO earnings (time-after-hours)",
+      "country": "USD",
+      "when_utc": "2026-08-12T20:30:00+00:00",
       "tier": "CRITICAL",
       "forecast": "$0.99",
       "previous": "$0.81",
       "symbol": "CSCO",
       "company": "Cisco Systems, Inc."
+    },
+    {
+      "kind": "MACRO",
+      "title": "PPI y/y",
+      "country": "JPY",
+      "when_utc": "2026-08-12T23:50:00+00:00",
+      "tier": "CRITICAL",
+      "forecast": "7.4%",
+      "previous": "7.1%",
+      "symbol": null
+    },
+    {
+      "kind": "MACRO",
+      "title": "Inflation Expectations q/q",
+      "country": "NZD",
+      "when_utc": "2026-08-13T03:00:00+00:00",
+      "tier": "MEDIUM",
+      "forecast": "",
+      "previous": "2.53%",
+      "symbol": null
+    },
+    {
+      "kind": "MACRO",
+      "title": "GDP m/m",
+      "country": "GBP",
+      "when_utc": "2026-08-13T06:00:00+00:00",
+      "tier": "CRITICAL",
+      "forecast": "-0.1%",
+      "previous": "0.1%",
+      "symbol": null
+    },
+    {
+      "kind": "MACRO",
+      "title": "Prelim GDP q/q",
+      "country": "GBP",
+      "when_utc": "2026-08-13T06:00:00+00:00",
+      "tier": "CRITICAL",
+      "forecast": "0.4%",
+      "previous": "0.6%",
+      "symbol": null
+    },
+    {
+      "kind": "MACRO",
+      "title": "PPI m/m",
+      "country": "CHF",
+      "when_utc": "2026-08-13T06:30:00+00:00",
+      "tier": "CRITICAL",
+      "forecast": "-0.2%",
+      "previous": "-0.3%",
+      "symbol": null
+    },
+    {
+      "kind": "MACRO",
+      "title": "Core PPI m/m",
+      "country": "USD",
+      "when_utc": "2026-08-13T12:30:00+00:00",
+      "tier": "CRITICAL",
+      "forecast": "0.3%",
+      "previous": "0.2%",
+      "symbol": null
+    },
+    {
+      "kind": "MACRO",
+      "title": "PPI m/m",
+      "country": "USD",
+      "when_utc": "2026-08-13T12:30:00+00:00",
+      "tier": "CRITICAL",
+      "forecast": "0.2%",
+      "previous": "-0.3%",
+      "symbol": null
+    },
+    {
+      "kind": "MACRO",
+      "title": "Unemployment Claims",
+      "country": "USD",
+      "when_utc": "2026-08-13T12:30:00+00:00",
+      "tier": "MEDIUM",
+      "forecast": "203K",
+      "previous": "199K",
+      "symbol": null
+    },
+    {
+      "kind": "MACRO",
+      "title": "RBA Gov Bullock Speaks",
+      "country": "AUD",
+      "when_utc": "2026-08-13T23:30:00+00:00",
+      "tier": "MEDIUM",
+      "forecast": "",
+      "previous": "",
+      "symbol": null
+    },
+    {
+      "kind": "MACRO",
+      "title": "French Final CPI m/m",
+      "country": "EUR",
+      "when_utc": "2026-08-14T06:45:00+00:00",
+      "tier": "CRITICAL",
+      "forecast": "0.6%",
+      "previous": "0.6%",
+      "symbol": null
+    },
+    {
+      "kind": "MACRO",
+      "title": "Flash GDP q/q",
+      "country": "EUR",
+      "when_utc": "2026-08-14T09:00:00+00:00",
+      "tier": "CRITICAL",
+      "forecast": "0.4%",
+      "previous": "0.4%",
+      "symbol": null
+    },
+    {
+      "kind": "MACRO",
+      "title": "Core Retail Sales m/m",
+      "country": "USD",
+      "when_utc": "2026-08-14T12:30:00+00:00",
+      "tier": "MEDIUM",
+      "forecast": "0.2%",
+      "previous": "-0.2%",
+      "symbol": null
+    },
+    {
+      "kind": "MACRO",
+      "title": "Retail Sales m/m",
+      "country": "USD",
+      "when_utc": "2026-08-14T12:30:00+00:00",
+      "tier": "MEDIUM",
+      "forecast": "0.1%",
+      "previous": "0.2%",
+      "symbol": null
+    },
+    {
+      "kind": "MACRO",
+      "title": "Prelim UoM Consumer Sentiment",
+      "country": "USD",
+      "when_utc": "2026-08-14T14:00:00+00:00",
+      "tier": "MEDIUM",
+      "forecast": "54.7",
+      "previous": "54.4",
+      "symbol": null
+    },
+    {
+      "kind": "MACRO",
+      "title": "Prelim UoM Inflation Expectations",
+      "country": "USD",
+      "when_utc": "2026-08-14T14:00:00+00:00",
+      "tier": "MEDIUM",
+      "forecast": "",
+      "previous": "4.2%",
+      "symbol": null
     },
     {
       "kind": "EARNINGS",
@@ -325,14 +279,14 @@
     },
     {
       "kind": "EARNINGS",
-      "title": "SNOW earnings (time-not-supplied)",
+      "title": "BABA earnings (time-pre-market)",
       "country": "USD",
-      "when_utc": "2026-08-26T20:00:00+00:00",
+      "when_utc": "2026-08-20T11:00:00+00:00",
       "tier": "CRITICAL",
-      "forecast": "($0.51)",
-      "previous": "($0.80)",
-      "symbol": "SNOW",
-      "company": "Snowflake Inc."
+      "forecast": "$1.77",
+      "previous": "$1.89",
+      "symbol": "BABA",
+      "company": "Alibaba Group Holding Limited"
     },
     {
       "kind": "EARNINGS",
@@ -344,6 +298,17 @@
       "previous": "$0.99",
       "symbol": "NVDA",
       "company": "NVIDIA Corporation"
+    },
+    {
+      "kind": "EARNINGS",
+      "title": "CRM earnings (time-after-hours)",
+      "country": "USD",
+      "when_utc": "2026-08-26T20:30:00+00:00",
+      "tier": "CRITICAL",
+      "forecast": "$2.35",
+      "previous": "$2.27",
+      "symbol": "CRM",
+      "company": "Salesforce, Inc."
     },
     {
       "kind": "EARNINGS",
@@ -369,14 +334,25 @@
     },
     {
       "kind": "EARNINGS",
-      "title": "CRM earnings (time-not-supplied)",
+      "title": "SNOW earnings (time-after-hours)",
       "country": "USD",
-      "when_utc": "2026-09-02T20:00:00+00:00",
+      "when_utc": "2026-09-02T20:30:00+00:00",
       "tier": "CRITICAL",
-      "forecast": "$2.35",
-      "previous": "$2.27",
-      "symbol": "CRM",
-      "company": "Salesforce, Inc."
+      "forecast": "($0.51)",
+      "previous": "($0.80)",
+      "symbol": "SNOW",
+      "company": "Snowflake Inc."
+    },
+    {
+      "kind": "EARNINGS",
+      "title": "ORCL earnings (time-not-supplied)",
+      "country": "USD",
+      "when_utc": "2026-09-08T20:00:00+00:00",
+      "tier": "CRITICAL",
+      "forecast": "$1.39",
+      "previous": "$1.20",
+      "symbol": "ORCL",
+      "company": "Oracle Corporation"
     }
   ]
 }

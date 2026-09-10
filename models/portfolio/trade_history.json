@@ -1,0 +1,67 @@
+{
+  "trades": [
+    {
+      "id": 1,
+      "timestamp": "2026-08-11 03:38:05",
+      "ticker": "LMT/USDT",
+      "direction": "SHORT",
+      "entry_price": 592.51,
+      "exit_price": 603.2,
+      "model_win_rate": 75.77000000000001,
+      "status": "CLOSED",
+      "outcome": "LOSS",
+      "pnl_usd": -132.33,
+      "factor_scores": {
+        "EMA stack fully bearish (price < 9 < 21 < 50)": 1.0,
+        "EMA21 flat \u2014 no trend slope": 1.0,
+        "HTF trends \u2014 1D:-1 4H:-1 1H:+1 15m:-1": 1.0,
+        "News bullish (+6.0 pts)": 1.0,
+        "Learned edge: LONG -4.2, SHORT -2.4 pts (BOS NONE, VOLATILE)": 1.0
+      },
+      "user_taken": false
+    },
+    {
+      "id": 2,
+      "timestamp": "2026-08-11 03:38:06",
+      "ticker": "ABNB/USDT",
+      "direction": "SHORT",
+      "entry_price": 178.59,
+      "exit_price": 181.62,
+      "model_win_rate": 84.35000000000001,
+      "status": "CLOSED",
+      "outcome": "LOSS",
+      "pnl_usd": -49.78,
+      "factor_scores": {
+        "HTF trends \u2014 1D:-1 4H:+0 1H:-1 15m:-1": 1.0,
+        "News bullish (+6.0 pts)": 1.0,
+        "Learned edge: LONG -4.4, SHORT -1.4 pts (BOS NONE, VOLATILE)": 1.0
+      },
+      "user_taken": false
+    },
+    {
+      "id": 3,
+      "timestamp": "2026-08-11 19:26:23",
+      "ticker": "IBM/USDT",
+      "direction": "SHORT",
+      "entry_price": 237.37,
+      "exit_price": 239.48,
+      "model_win_rate": 75.38,
+      "status": "CLOSED",
+      "outcome": "LOSS",
+      "pnl_usd": -65.98,
+      "factor_scores": {
+        "HTF trends \u2014 1D:+1 4H:-1 1H:-1 15m:-1": 1.0,
+        "News bearish (-6.0 pts)": 1.0,
+        "Learned edge: LONG -3.3, SHORT +0.8 pts (BOS NONE, TRENDING)": 1.0
+      },
+      "user_taken": false
+    }
+  ],
+  "engine_signals": {
+    "total": 3,
+    "wins": 0,
+    "losses": 3,
+    "win_rate_pct": 0.0,
+    "pnl_usd": -248.09
+  }
+}

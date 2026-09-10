@@ -8,9 +8,9 @@ services:
     healthCheckPath: /
     envVars:
       - key: TELEGRAM_BOT_TOKEN
-        value: "8847828896:AAFcTqjJGe6VN6mbPHcB1QTlvkpQxhb5ntI"
+        sync: false
       - key: TELEGRAM_CHAT_ID
-        value: "7347569157"
+        sync: false
       - key: PYTHON_VERSION
         value: 3.10.12
       - key: PYTHONUNBUFFERED
