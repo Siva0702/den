@@ -1,0 +1,265 @@
+{
+  "audit_time_utc": "2026-09-10T18:43:10.120255+00:00",
+  "scope": "local repository and saved data; offline, no production changes",
+  "current_execution_version": "v5-ordered-1m-cost-aware",
+  "records": 1854,
+  "clean_records": 1851,
+  "verified_current_records": 0,
+  "versions": {
+    "v4-trail-one-behind-1m": 1854
+  },
+  "first_open_utc": "2026-08-04T22:21:51.499852+00:00",
+  "last_open_utc": "2026-08-11T17:56:14.883448+00:00",
+  "historical_score_bins_UNVERIFIED": [
+    {
+      "score_range": "20-30",
+      "n": 6,
+      "recorded_win_rate": 0.6666666666666666,
+      "estimated_net_win_rate": 0.6666666666666666
+    },
+    {
+      "score_range": "30-40",
+      "n": 156,
+      "recorded_win_rate": 0.5769230769230769,
+      "estimated_net_win_rate": 0.5961538461538461
+    },
+    {
+      "score_range": "40-50",
+      "n": 849,
+      "recorded_win_rate": 0.5182567726737338,
+      "estimated_net_win_rate": 0.5241460541813898
+    },
+    {
+      "score_range": "50-60",
+      "n": 689,
+      "recorded_win_rate": 0.602322206095791,
+      "estimated_net_win_rate": 0.6226415094339622
+    },
+    {
+      "score_range": "60-70",
+      "n": 132,
+      "recorded_win_rate": 0.696969696969697,
+      "estimated_net_win_rate": 0.7196969696969697
+    },
+    {
+      "score_range": "70-80",
+      "n": 19,
+      "recorded_win_rate": 0.42105263157894735,
+      "estimated_net_win_rate": 0.42105263157894735
+    }
+  ],
+  "historical_diagnostic_UNVERIFIED": {
+    "available": true,
+    "validated": false,
+    "reason": "test probability error does not beat the constant base-rate forecast; test tail has no positive daily-block net expectancy lower bound; less than seven days of history; outcome evidence is stale; legacy execution labels require verified replay; legacy feature snapshots are not comparable to current features",
+    "split": {
+      "train": 995,
+      "calibration": 300,
+      "test": 371,
+      "purged": 185
+    },
+    "validation": {
+      "model": {
+        "brier": 0.2550181352102169,
+        "log_loss": 0.729362257194549
+      },
+      "baseline": {
+        "brier": 0.24350190998879592,
+        "log_loss": 0.6801424780500375
+      },
+      "tail_n": 371,
+      "tail_days": 3,
+      "tail_net_R_lower": -0.513887949636036,
+      "reliability": [
+        {
+          "bin": "0.70-1.01",
+          "n": 371,
+          "predicted": 0.821,
+          "actual": 0.655
+        }
+      ],
+      "failures": [
+        "test probability error does not beat the constant base-rate forecast",
+        "test tail has no positive daily-block net expectancy lower bound",
+        "less than seven days of history",
+        "outcome evidence is stale",
+        "legacy execution labels require verified replay",
+        "legacy feature snapshots are not comparable to current features"
+      ]
+    }
+  },
+  "expanding_window_diagnostics_UNVERIFIED": [
+    {
+      "fraction": 0.6,
+      "n": 1110,
+      "split": {
+        "train": 600,
+        "calibration": 143,
+        "test": 222,
+        "purged": 145
+      },
+      "validated": false,
+      "reason": "test probability error does not beat the constant base-rate forecast; test tail has no positive daily-block net expectancy lower bound; less than seven days of history; outcome evidence is stale; legacy execution labels require verified replay; legacy feature snapshots are not comparable to current features",
+      "validation": {
+        "model": {
+          "brier": 0.245888114195589,
+          "log_loss": 0.6918192806552064
+        },
+        "baseline": {
+          "brier": 0.24657417417417415,
+          "log_loss": 0.6862939462836921
+        },
+        "tail_n": 75,
+        "tail_days": 1,
+        "tail_net_R_lower": null,
+        "reliability": [
+          {
+            "bin": "0.40-0.50",
+            "n": 5,
+            "predicted": 0.458,
+            "actual": 0.2
+          },
+          {
+            "bin": "0.50-0.60",
+            "n": 37,
+            "predicted": 0.559,
+            "actual": 0.676
+          },
+          {
+            "bin": "0.60-0.70",
+            "n": 105,
+            "predicted": 0.648,
+            "actual": 0.743
+          },
+          {
+            "bin": "0.70-1.01",
+            "n": 75,
+            "predicted": 0.739,
+            "actual": 0.493
+          }
+        ],
+        "failures": [
+          "test probability error does not beat the constant base-rate forecast",
+          "test tail has no positive daily-block net expectancy lower bound",
+          "less than seven days of history",
+          "outcome evidence is stale",
+          "legacy execution labels require verified replay",
+          "legacy feature snapshots are not comparable to current features"
+        ]
+      }
+    },
+    {
+      "fraction": 0.8,
+      "n": 1480,
+      "split": {
+        "train": 805,
+        "calibration": 198,
+        "test": 296,
+        "purged": 181
+      },
+      "validated": false,
+      "reason": "test tail has no positive daily-block net expectancy lower bound; less than seven days of history; outcome evidence is stale; legacy execution labels require verified replay; legacy feature snapshots are not comparable to current features",
+      "validation": {
+        "model": {
+          "brier": 0.2024051128552935,
+          "log_loss": 0.5981123151238649
+        },
+        "baseline": {
+          "brier": 0.24574317286307565,
+          "log_loss": 0.6846325507910926
+        },
+        "tail_n": 202,
+        "tail_days": 1,
+        "tail_net_R_lower": null,
+        "reliability": [
+          {
+            "bin": "0.40-0.50",
+            "n": 2,
+            "predicted": 0.457,
+            "actual": 1.0
+          },
+          {
+            "bin": "0.50-0.60",
+            "n": 12,
+            "predicted": 0.567,
+            "actual": 0.583
+          },
+          {
+            "bin": "0.60-0.70",
+            "n": 80,
+            "predicted": 0.654,
+            "actual": 0.787
+          },
+          {
+            "bin": "0.70-1.01",
+            "n": 202,
+            "predicted": 0.788,
+            "actual": 0.718
+          }
+        ],
+        "failures": [
+          "test tail has no positive daily-block net expectancy lower bound",
+          "less than seven days of history",
+          "outcome evidence is stale",
+          "legacy execution labels require verified replay",
+          "legacy feature snapshots are not comparable to current features"
+        ]
+      }
+    },
+    {
+      "fraction": 1.0,
+      "n": 1851,
+      "split": {
+        "train": 995,
+        "calibration": 300,
+        "test": 371,
+        "purged": 185
+      },
+      "validated": false,
+      "reason": "test probability error does not beat the constant base-rate forecast; test tail has no positive daily-block net expectancy lower bound; less than seven days of history; outcome evidence is stale; legacy execution labels require verified replay; legacy feature snapshots are not comparable to current features",
+      "validation": {
+        "model": {
+          "brier": 0.2550181352102169,
+          "log_loss": 0.729362257194549
+        },
+        "baseline": {
+          "brier": 0.24350190998879592,
+          "log_loss": 0.6801424780500375
+        },
+        "tail_n": 371,
+        "tail_days": 3,
+        "tail_net_R_lower": -0.513887949636036,
+        "reliability": [
+          {
+            "bin": "0.70-1.01",
+            "n": 371,
+            "predicted": 0.821,
+            "actual": 0.655
+          }
+        ],
+        "failures": [
+          "test probability error does not beat the constant base-rate forecast",
+          "test tail has no positive daily-block net expectancy lower bound",
+          "less than seven days of history",
+          "outcome evidence is stale",
+          "legacy execution labels require verified replay",
+          "legacy feature snapshots are not comparable to current features"
+        ]
+      }
+    }
+  ],
+  "live_model": {
+    "available": false,
+    "validated": false,
+    "n": 0,
+    "version": "v2-purged-net-outcomes",
+    "split": {
+      "train": 0,
+      "calibration": 0,
+      "test": 0,
+      "purged": 0
+    },
+    "reason": "insufficient independent chronological train/calibration/test data"
+  },
+  "conclusion": "No demonstrated deployable edge in this local evidence. Legacy outcomes require verified 1m replay; forward paper outcomes must validate after costs."
+}

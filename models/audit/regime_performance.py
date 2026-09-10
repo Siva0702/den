@@ -49,7 +49,7 @@ class RegimePerformance:
         e = float(t.get("entry", 0) or 0)
         s = float(t.get("stop_loss", 0) or 0)
         slp = abs(e - s) / e * 100 if e else 0
-        return (float(t.get("pnl_pct", 0) or 0) / slp) if slp else 0.0
+        return (float(t.get("net_pnl_pct", t.get("pnl_pct", 0)) or 0) / slp) if slp else 0.0
 
     # ------------------------------------------------------------------
     @classmethod
@@ -108,7 +108,7 @@ class RegimePerformance:
                 lambda t: f"{(t.get('features') or {}).get('bos', 'NONE')}|{t.get('direction')}",
                 "bos_x_direction"),
             "regime_direction": family(
-                lambda t: f"{(t.get('features') or {}).get('regime', t.get('market_regime', '?'))}"
+                lambda t: f"{(t.get('features') or {}).get('market_regime', t.get('market_regime', '?'))}"
                           f"|{t.get('direction')}",
                 "regime_x_direction"),
             "direction": family(lambda t: t.get("direction"), "direction"),

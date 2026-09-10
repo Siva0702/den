@@ -4,6 +4,9 @@ import os
 import requests
 import sys
 import time
+import tempfile
+import threading
+from indicators.execution import advance_trade, LOGIC_VERSION
 
 sys.path.append(os.path.dirname(__file__))
 from audit.engine_efficiency import EngineEfficiencyTracker
@@ -22,13 +25,15 @@ class ActivePositionMonitor:
     - Uses 🟢 for LONG wins, 🔴 for SHORT wins, 🏆 for big wins, 💔 for losses
     """
 
+    _lock = threading.RLock()
+
     def __init__(self, bot_token: str, chat_id: str):
-        self.bot_token = bot_token or "8847828896:AAFcTqjJGe6VN6mbPHcB1QTlvkpQxhb5ntI"
-        self.chat_id = chat_id or "7347569157"
+        self.bot_token = bot_token
+        self.chat_id = chat_id
         self.notified_milestones = self.load_milestones()
 
     def load_milestones(self) -> dict:
-        path = "portfolio/notified_milestones.json"
+        path = os.path.join(os.path.dirname(POSITIONS_FILE), "notified_milestones.json")
         if os.path.exists(path):
             try:
                 with open(path, "r") as f:
@@ -38,8 +43,8 @@ class ActivePositionMonitor:
         return {}
 
     def save_milestones(self):
-        os.makedirs("portfolio", exist_ok=True)
-        path = "portfolio/notified_milestones.json"
+        os.makedirs(os.path.dirname(POSITIONS_FILE), exist_ok=True)
+        path = os.path.join(os.path.dirname(POSITIONS_FILE), "notified_milestones.json")
         try:
             with open(path, "w") as f:
                 json.dump(self.notified_milestones, f, indent=2)
@@ -56,13 +61,17 @@ class ActivePositionMonitor:
         return []
 
     def save_positions(self, positions: list):
-        os.makedirs("portfolio", exist_ok=True)
-        try:
-            with open(POSITIONS_FILE, "w") as f:
-                json.dump(positions, f, indent=2)
-            self.save_milestones()
-        except Exception as e:
-            print(f"[!] Error saving active positions: {e}")
+        os.makedirs(os.path.dirname(POSITIONS_FILE), exist_ok=True)
+        with self._lock:
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(POSITIONS_FILE), suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w") as f:
+                    json.dump(positions, f, indent=2, allow_nan=False)
+                os.replace(tmp, POSITIONS_FILE)
+                self.save_milestones()
+            finally:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
 
     def _format_price(self, price: float) -> str:
         """Dynamic precision formatting."""
@@ -259,185 +268,46 @@ class ActivePositionMonitor:
                 print(f"[!] dispatch audit (scratch) failed: {_e}", flush=True)
         print(f"[decay] {ticker} {decay['recommendation']} score={decay['decay_score']}", flush=True)
 
-    def check_active_positions(self, ticker: str, current_price: float, sentiment_multiplier: float, structure_flipped: bool, df_15m=None, bar_high: float = None, bar_low: float = None):
-        positions = self.load_positions()
-        if not positions:
-            return
-
-        remaining_positions = []
-        modified = False
-
-        for pos in positions:
-            if pos.get("ticker") != ticker:
-                remaining_positions.append(pos)
-                continue
-
-            entry = pos.get("entry_price", current_price)
-            sl = pos.get("stop_loss", current_price)
-            tp = pos.get("take_profit", current_price)
-            direction = pos.get("direction", "LONG")
-            factor_scores = pos.get("factor_scores", {})
-            win_rate_at_entry = pos.get("win_rate", 0.0)
-            user_positioned = pos.get("user_positioned", False)
-
-            # Use the 1m bar RANGE, not a point sample. A scalar close cannot see a
-            # wick that pierced the stop between scans, so stops were being missed and
-            # the trade kept running on paper after it was already dead in reality.
-            hi = float(bar_high) if bar_high else current_price
-            lo = float(bar_low) if bar_low else current_price
-            if direction == "LONG":
-                tp_hit, sl_hit = hi >= tp, lo <= sl
-            else:
-                tp_hit, sl_hit = lo <= tp, hi >= sl
-            # A bar that touched both is a stop-out: the stop is protective and must be
-            # assumed to trigger first unless proven otherwise.
-            if tp_hit and sl_hit:
-                tp_hit = False
-
-            if tp_hit:
-                alert_key = f"{ticker}_TP_HIT_{int(pos.get('epoch_time', 0))}"
-                if alert_key not in self.notified_milestones:
-                    pnl_data = self._calculate_real_pnl(pos, current_price)
-                    
-                    # Record to BOTH tracking files (fixes self-learning disconnect)
-                    eff = EngineEfficiencyTracker.record_trade_outcome(
-                        ticker, direction, entry, current_price, "WIN", pnl_data["pnl_usd"],
-                        factor_scores=factor_scores,
-                        win_rate_at_entry=win_rate_at_entry,
-                        user_positioned=user_positioned
-                    )
-
-                    # Dynamic emojis
-                    dir_dot = "🟢" if direction == "LONG" else "🔴"
-                    big_win = pnl_data["roi_pct"] >= 50.0
-                    win_emoji = "🏆" if big_win else "🎉"
-
-                    msg = f"""
-{win_emoji} **ENGINE WIN: {ticker} HIT TP!** {dir_dot}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📍 **Entry:** `{self._format_price(entry)}`
-🎯 **TP Exit:** `{self._format_price(current_price)}`
-📈 **Real PnL:** `+${pnl_data['pnl_usd']:,.2f} USDT` (+{pnl_data['roi_pct']}% ROI)
-💰 **Margin:** `${pnl_data['margin']:,.2f}` ({pnl_data['leverage']}x)
-{"👤 **You positioned this trade!**" if user_positioned else ""}
-
-📊 **ENGINE ACCURACY**
-• Win Rate: `{eff['realized_win_rate']}%` ({eff['total_wins']}W / {eff['total_losses']}L)
-• Net PnL: `${eff['total_engine_pnl_usd']:,.2f} USDT`
-• Profit Factor: `{eff['profit_factor'] if eff.get('profit_factor') else '— (no losses yet)'}`
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                    """
-                    self.send_telegram_alert(msg)
-                    self.notified_milestones[alert_key] = True
-                    # Clears any loss streak on this ticker.
-                    SignalCooldownEngine.record_outcome(ticker, direction, is_win=True)
-                modified = True
-
-            elif sl_hit:
-                alert_key = f"{ticker}_SL_HIT_{int(pos.get('epoch_time', 0))}"
-                if alert_key not in self.notified_milestones:
-                    pnl_data = self._calculate_real_pnl(pos, current_price)
-                    
-                    # Record to BOTH tracking files
-                    eff = EngineEfficiencyTracker.record_trade_outcome(
-                        ticker, direction, entry, current_price, "LOSS", pnl_data["pnl_usd"],
-                        factor_scores=factor_scores,
-                        win_rate_at_entry=win_rate_at_entry,
-                        user_positioned=user_positioned
-                    )
-
-                    dir_dot = "🟢" if direction == "LONG" else "🔴"
-
-                    msg = f"""
-💔 **ENGINE LOSS: {ticker} HIT SL** {dir_dot}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📍 **Entry:** `{self._format_price(entry)}`
-🛡️ **SL Exit:** `{self._format_price(current_price)}`
-📉 **Real Loss:** `-${abs(pnl_data['pnl_usd']):,.2f} USDT` ({pnl_data['roi_pct']}% ROI)
-💰 **Margin:** `${pnl_data['margin']:,.2f}` ({pnl_data['leverage']}x)
-{"👤 **You positioned this trade!**" if user_positioned else ""}
-
-📊 **ENGINE ACCURACY**
-• Win Rate: `{eff['realized_win_rate']}%` ({eff['total_wins']}W / {eff['total_losses']}L)
-• Net PnL: `${eff['total_engine_pnl_usd']:,.2f} USDT`
-
-🧠 **Self-Learning:** Engine will penalize similar setups on {ticker}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                    """
-                    self.send_telegram_alert(msg)
-                    self.notified_milestones[alert_key] = True
-                    # Locks this direction for 2h; a second consecutive loss locks the
-                    # whole ticker for 6h. The opposite direction stays available.
-                    SignalCooldownEngine.record_outcome(ticker, direction, is_win=False)
-                modified = True
-
-            elif structure_flipped and not (tp_hit or sl_hit):
-                alert_key = f"{ticker}_EARLY_EXIT_{int(pos.get('epoch_time', 0))}"
-                if alert_key not in self.notified_milestones:
-                    pnl_data = self._calculate_real_pnl(pos, current_price)
-                    inv_meta = self.calculate_invalidation_score(pos, current_price, structure_flipped, df_15m)
-                    
-                    inv_score = inv_meta["invalidation_score"]
-                    urgency = inv_meta["urgency_label"]
-                    saved_usd = inv_meta["saved_usd"]
-                    factors_text = "\n".join([f"• {f}" for f in inv_meta["factors"]])
-                    dir_dot = "🟢" if direction == "LONG" else "🔴"
-
-                    if inv_score >= 75:
-                        msg = f"""
-🚨 **URGENT COMMAND: CLOSE {ticker} IMMEDIATELY AT MARKET!** {dir_dot}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚡ **100% HIGH-CONFIDENCE INVALIDATION ({inv_score}% SCORE)**
-📍 **Entry:** `{self._format_price(entry)}`
-⚡ **Current Price:** `{self._format_price(current_price)}`
-📉 **Unrealized PnL:** `${pnl_data['pnl_usd']:,.2f} USDT` ({pnl_data['roi_pct']}% ROI)
-💵 **CAPITAL SAVED VS SL:** `+${saved_usd:,.2f} USDT` (Preserves margin!)
-
-📋 **HIGH-CONFIDENCE INVALIDATION REASONS:**
-{factors_text}
-
-🔥 **ACTION REQUIRED:** Close trade AT MARKET on Bitunix/Weex IMMEDIATELY to prevent full SL loss!
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                        """
-                    else:
-                        msg = f"""
-⚠️ **EARLY EXIT WARNING: {ticker} INVALIDATION SCORE {inv_score}%** {dir_dot}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 **URGENCY:** `{urgency}`
-📍 **Entry:** `{self._format_price(entry)}`
-⚡ **Current Price:** `{self._format_price(current_price)}`
-📉 **Unrealized PnL:** `${pnl_data['pnl_usd']:,.2f} USDT` ({pnl_data['roi_pct']}% ROI)
-💵 **Capital Saved vs SL:** `+${saved_usd:,.2f} USDT`
-
-📋 **INVALIDATION DIMENSIONS:**
-{factors_text}
-
-⚡ **ACTION:** Consider closing position early at market to preserve capital.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                        """
-                    self.send_telegram_alert(msg)
-                    self.notified_milestones[alert_key] = True
-                remaining_positions.append(pos)
-
-            else:
-                # Not stopped, not targeted, structure intact — but is it still WORKING?
-                # This is the sideways-decay case: a pumped pair that stalls after the
-                # session ends and bleeds into the stop without ever breaking structure.
-                decay = TradeDecayEngine.analyze(pos, df_15m, current_price)
-                if decay.get("available") and decay["recommendation"] in ("CLOSE_NOW", "TIGHTEN_OR_SCRATCH"):
-                    key = f"{ticker}_DECAY_{decay['recommendation']}_{int(pos.get('epoch_time', 0))}"
-                    if key not in self.notified_milestones:
-                        self._send_decay_alert(ticker, pos, current_price, decay)
-                        self.notified_milestones[key] = True
-                remaining_positions.append(pos)
-
-        if modified:
-            # Diff BEFORE writing: anything dropped from the list has closed, whatever
-            # branch removed it. Hooking each exit branch leaves the next one unaudited.
-            try:
-                from audit.dispatch_ledger import DispatchLedger
-                DispatchLedger.sync_closures(positions, remaining_positions,
-                                             {ticker: {"close": current_price}})
-            except Exception as _e:
-                print(f"[!] dispatch audit sync failed: {_e}", flush=True)
-            self.save_positions(remaining_positions)
+    def check_active_positions(self, ticker, current_price, sentiment_multiplier,
+                               structure_flipped, df_15m=None, bar_high=None, bar_low=None, bars=None):
+        """Persist ordered-bar progress; use the same exits as shadow and replay."""
+        from audit.dispatch_ledger import DispatchLedger
+        with self._lock:
+            positions = self.load_positions()
+            remaining = []
+            for pos in positions:
+                if pos.get("ticker") != ticker:
+                    remaining.append(pos)
+                    continue
+                # Reconstruct legacy open trades from entry rather than inherit old cursors.
+                if pos.get("config_version") != LOGIC_VERSION:
+                    for key in ("last_bar_ts", "tp_levels_hit", "first_tp_epoch"):
+                        pos.pop(key, None)
+                    pos["config_version"] = LOGIC_VERSION
+                event = pos.get("execution_event") or advance_trade(pos, bars or [])
+                if event is None:
+                    remaining.append(pos)
+                    continue
+                pos["execution_event"] = event
+                exit_price = event["exit_price"]
+                # Never infer exit reason from a later sampled close. Persist the actual event.
+                if not DispatchLedger.record_close(pos, exit_price, event["outcome"]):
+                    remaining.append(pos)
+                    continue
+                notional = float(pos.get("margin", 0))*float(pos.get("leverage", 0))
+                net_usd = notional*event["net_pnl_pct"]/100
+                won = net_usd > 0
+                EngineEfficiencyTracker.record_trade_outcome(
+                    ticker, pos["direction"], pos["entry_price"], exit_price,
+                    "WIN" if won else "LOSS", round(net_usd, 2),
+                    factor_scores=pos.get("factor_scores", {}),
+                    win_rate_at_entry=pos.get("win_rate", 0),
+                    user_positioned=pos.get("user_positioned", False),
+                    trade_id=pos.get("dispatch_id") or f"{ticker}|{pos.get('epoch_time')}")
+                SignalCooldownEngine.record_outcome(ticker, pos["direction"], is_win=won)
+                self.send_telegram_alert(
+                    f"{'WIN' if won else 'LOSS'} | {ticker} {pos['direction']}\n"
+                    f"Exit: {self._format_price(exit_price)} ({event['outcome']})\n"
+                    f"Estimated net result: ${net_usd:+.2f} after modelled costs.\n"
+                    "Paper execution; confirm actual exchange fills separately.")
+            self.save_positions(remaining)

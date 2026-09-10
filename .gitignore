@@ -42,3 +42,5 @@ models/portfolio/active_positions.json
 models/portfolio/notified_milestones.json
 models/portfolio/dispatched_signals.json
 models/portfolio/system_version.json
+
+models/audit/decision_status.json

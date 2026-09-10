@@ -4,6 +4,7 @@ import os
 import tempfile
 import threading
 import time
+from indicators.execution import advance_trade, LOGIC_VERSION, FEATURE_VERSION
 
 MISSED_FILE_NAME = "audit/shadow_missed.json"
 MODELS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -67,7 +68,7 @@ class ShadowTradeLedger:
     #   v1  resolve at final ladder rung
     #   v2  resolve at TP1 (planned exit), trail sits ON the rung just hit
     #   v3  trail sits ONE RUNG BEHIND; TP1 -> breakeven, TP2 -> TP1; BREAKEVEN is neutral
-    LOGIC_VERSION = "v4-trail-one-behind-1m"
+    LOGIC_VERSION = LOGIC_VERSION
 
     _lock = threading.Lock()
     _last_open_candle = {}      # "TICKER|DIR" -> candle timestamp of last open
@@ -136,19 +137,23 @@ class ShadowTradeLedger:
         Idempotent per (ticker, direction) while a shadow trade is live, so the 15s
         scan loop cannot spam duplicates of the same setup.
         """
-        from audit.score_model import CalibratedScoreModel
-        model_score = candidate.get("model_score")
-        score = float(candidate.get("total_score", 0.0))
-        if model_score is not None:
-            if float(model_score) < CalibratedScoreModel.MODEL_SHADOW_FLOOR:
-                return False
-        elif score < cls.SHADOW_FLOOR:
+        # Sampling is independent of the learned score: otherwise a model stops
+        # observing its own rejected candidates and cannot learn from its mistakes.
+        score = float(candidate.get("adjusted_score", candidate.get("total_score", 0)))
+        if score < cls.SHADOW_FLOOR:
             return False
 
         ticker = candidate.get("ticker")
         direction = candidate.get("direction")
         entry = float(candidate.get("entry", 0.0))
         if not ticker or direction not in ("LONG", "SHORT") or entry <= 0:
+            return False
+
+        # Validate before persistence; duplicate rungs must not enter new training data.
+        probe = {"entry": entry, "stop_loss": candidate.get("sl"), "direction": direction,
+                 "tp_ladder": candidate.get("tp_ladder"), "opened_epoch": time.time()}
+        advance_trade(probe, [])
+        if probe.get("data_quality_error"):
             return False
 
         # CHURN GUARD.
@@ -196,8 +201,14 @@ class ShadowTradeLedger:
             if candle_ts is not None and cls._last_open_candle.get(key) == candle_ts:
                 return False        # already opened on this candle
             open_trades = cls.load_open()
+            if candle_ts is not None and any(
+                    t.get("ticker") == ticker and t.get("direction") == direction
+                    and t.get("candle_ts") == candle_ts and t.get("config_version") == cls.LOGIC_VERSION
+                    for t in cls.load_closed()[-200:]):
+                return False
             for t in open_trades:
-                if t.get("ticker") == ticker and t.get("direction") == direction:
+                if (t.get("ticker") == ticker and t.get("direction") == direction
+                        and t.get("config_version") == cls.LOGIC_VERSION):
                     return False
 
             record = {
@@ -219,8 +230,12 @@ class ShadowTradeLedger:
                 "learned_adjustment": candidate.get("learned_adjustment"),
                 "model_score": candidate.get("model_score"),
                 "model_prob": candidate.get("model_prob"),
+                "entry_provenance": candidate.get("entry_provenance"),
+                "model_version": candidate.get("model_version"),
+                "funding_rate": candidate.get("funding_rate", 0),
                 "calibrated_win_rate": candidate.get("calibrated_win_rate"),
                 "opened_epoch": time.time(),
+                "entry_minute_excluded": True,
                 "opened_time": time.strftime("%Y-%m-%d %H:%M:%S"),
 
                 # Full feature snapshot — this is what calibration learns from.
@@ -258,228 +273,30 @@ class ShadowTradeLedger:
     # ------------------------------------------------------------------
     @classmethod
     def update_prices(cls, price_map: dict) -> list:
-        """
-        Advance every open shadow trade against the latest prices.
-
-        price_map accepts either {ticker: last_price} or, preferably,
-        {ticker: {"close": c, "high": h, "low": l}}.
-
-        Using close alone was a real defect: a scan every 15s samples the CLOSE, so any
-        excursion that happened between scans — or inside the current candle — was
-        invisible. ORDI ran 1.64% in favour and through TP1 while the ledger recorded a
-        0.29% MFE and no target hit, because the move never happened to land on a sample.
-        Feeding the bar HIGH and LOW makes MAE/MFE and target detection reflect what
-        price actually did rather than where it happened to be when we looked.
-
-        Crucially this does NOT stop at the first stop-loss touch. It keeps the trade
-        alive to see whether price subsequently reached target, which is what produces
-        the SL_THEN_TP label. A system that closes and forgets can never learn that its
-        stops are simply too tight.
-        """
+        """Resolve only ordered, complete 1m candles; scalar/range snapshots cannot label trades."""
         resolved = []
         with cls._lock:
-            open_trades = cls.load_open()
-            if not open_trades:
-                return []
-
             still_open = []
-            now = time.time()
-
-            for t in open_trades:
-                price = price_map.get(t["ticker"])
-                if price is None:
-                    if now - t.get("opened_epoch", now) > cls.MAX_HOLD_SECONDS:
-                        resolved.append(cls._resolve(t, t.get("last_price", t["entry"]), "TIMEOUT_NO_DATA"))
-                    else:
-                        still_open.append(t)
-                    continue
-
-                if isinstance(price, dict):
-                    close = float(price.get("close"))
-                    high = float(price.get("high", close))
-                    low = float(price.get("low", close))
-                else:
-                    close = high = low = float(price)
-
-                entry = t["entry"]
-                direction = t["direction"]
-                sl = t["stop_loss"]
-                t["last_price"] = close
-                t["bars_observed"] = t.get("bars_observed", 0) + 1
-
-                # Excursions measured against the bar extremes, not the sampled close.
-                if direction == "LONG":
-                    if low < t["mae_price"]:
-                        t["mae_price"] = low
-                    if high > t["mfe_price"]:
-                        t["mfe_price"] = high
-                    t["mae_pct"] = round((t["mae_price"] - entry) / entry * 100, 4)
-                    t["mfe_pct"] = round((t["mfe_price"] - entry) / entry * 100, 4)
-                    sl_touch = low <= sl
-                    tp_probe = high
-                else:
-                    if high > t["mae_price"]:
-                        t["mae_price"] = high
-                    if low < t["mfe_price"]:
-                        t["mfe_price"] = low
-                    t["mae_pct"] = round((entry - t["mae_price"]) / entry * 100, 4)
-                    t["mfe_pct"] = round((entry - t["mfe_price"]) / entry * 100, 4)
-                    sl_touch = high >= sl
-                    tp_probe = low
-                price = close
-
-                if sl_touch and not t["sl_touched"]:
-                    t["sl_touched"] = True
-                    t["sl_touched_epoch"] = now
-
-                # TP ladder progress.
-                # RULE: the result is whichever level price touches FIRST. Once the stop
-                # has been tagged the position is flat, so no further rung may be counted
-                # — otherwise a trade that banked TP1, reversed through the stop, then
-                # drifted up to TP2 would record TP2 as "reached" when it was
-                # uncapturable. Freezing the counter at the stop keeps every rung's reach
-                # rate a valid counterfactual: "would this target have been hit BEFORE the
-                # stop, if it had been my only target?"
-                if t["sl_touched"]:
-                    ladder_iter = []
-                else:
-                    ladder_iter = t.get("tp_ladder", []) or [t.get("primary_tp")]
-                for idx, tp_level in enumerate(ladder_iter, start=1):
-                    if tp_level is None:
-                        continue
-                    tp_level = float(tp_level)
-                    hit = tp_probe >= tp_level if direction == "LONG" else tp_probe <= tp_level
-                    if hit and idx not in t["tp_levels_hit"]:
-                        t["tp_levels_hit"].append(idx)
-                        if t.get("first_tp_epoch") is None:
-                            t["first_tp_epoch"] = now
-
-                final_tp = None
-                ladder = t.get("tp_ladder") or []
-                if ladder:
-                    idx = min(cls.PRIMARY_TP_INDEX, len(ladder) - 1)
-                    final_tp = float(ladder[idx])
-                elif t.get("primary_tp"):
-                    final_tp = float(t["primary_tp"])
-
-                reached_final = final_tp is not None and (
-                    tp_probe >= final_tp if direction == "LONG" else tp_probe <= final_tp
-                )
-
-                # --- Resolution, decided on EVENT ORDER, not just event presence ---
-                # A live position is closed by whichever level price reaches first.
-                # Getting this order wrong is how a paper ledger flatters itself: a
-                # trade that was stopped out and only later ran to target must never
-                # be booked as a win.
-                sl_first = t["sl_touched"] and (
-                    t.get("first_tp_epoch") is None
-                    or t["sl_touched_epoch"] <= t["first_tp_epoch"]
-                )
-
-                # ---- RATCHETING TRAIL STOP -------------------------------------
-                # The stop ratchets up to each rung as it is reached. Before TP1 the
-                # original stop is live. Once TP1 prints, the stop moves TO TP1 and the
-                # position runs for TP2; if price falls back to TP1 first, we are out at
-                # TP1 and the result is TP1_HIT. The same repeats up the ladder, so a
-                # runner that reaches TP3 before turning is booked as TP3, not TP1.
-                #
-                # First touch always decides: anything price does after the trail stop is
-                # tagged is uncapturable and never counted.
-                ladder = t.get("tp_ladder") or ([t["primary_tp"]] if t.get("primary_tp") else [])
-                trail_idx = max(t["tp_levels_hit"]) if t["tp_levels_hit"] else 0
-
-                if trail_idx > 0:
-                    trail_stop = float(ladder[trail_idx - 1])
-                    # The trail ARMS on the next bar, never on the bar that tagged the
-                    # rung. Price reaches TP1 from below, so that bar's low sits under
-                    # TP1 by definition — checking the trail immediately closed every
-                    # trade the instant it first touched target, which is why nothing
-                    # ever ran to TP2+. A rung must be held for one bar before its level
-                    # can stop us out.
-                    armed_at = t.get("trail_armed_idx")
-                    if armed_at != trail_idx:
-                        t["trail_armed_idx"] = trail_idx
-                        still_open.append(t)
-                        continue
-                    stop_hit = (low <= trail_stop) if direction == "LONG" else (high >= trail_stop)
-                    if trail_idx >= len(ladder):
-                        # Top rung reached — nothing left to run for.
-                        resolved.append(cls._resolve(t, trail_stop, f"TP{trail_idx}_HIT"))
-                        continue
-                    if stop_hit:
-                        # Pessimistic within-bar ordering: if a bar both advances a rung
-                        # and tags the trail, assume the trail went first.
-                        resolved.append(cls._resolve(t, trail_stop, f"TP{trail_idx}_HIT"))
-                        continue
-                    if now - t.get("opened_epoch", now) > cls.MAX_HOLD_SECONDS:
-                        resolved.append(cls._resolve(t, trail_stop, f"TP{trail_idx}_HIT"))
-                        continue
+            for t in cls.load_open():
+                if t.get("config_version") != cls.LOGIC_VERSION:
                     still_open.append(t)
                     continue
-
-                # No rung reached yet — the ORIGINAL stop is still the live one.
-                if sl_touch:
-                    t["sl_touched"] = True
-                    t["sl_touched_epoch"] = t["sl_touched_epoch"] or now
-                if t["sl_touched"]:
-                    if now - (t["sl_touched_epoch"] or now) > cls.SL_GRACE_SECONDS:
-                        # Keep the SL_THEN_TP label for stop-placement research, but the
-                        # exit is at the stop either way — the position was flat.
-                        label = "SL_THEN_TP" if t["tp_levels_hit"] else "SL_HIT"
-                        resolved.append(cls._resolve(t, sl, label))
-                    else:
-                        still_open.append(t)
-                    continue
-                if now - t.get("opened_epoch", now) > cls.MAX_HOLD_SECONDS:
-                    resolved.append(cls._resolve(t, price, "TIMEOUT"))
-                    continue
-                still_open.append(t)
-
+                quote = price_map.get(t["ticker"]) or {}
+                bars = quote.get("bars", []) if isinstance(quote, dict) else []
+                event = advance_trade(t, bars)
+                if event:
+                    t.update(event)
+                    t["closed_time"] = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(event["closed_epoch"]))
+                    t["tp_levels_hit_count"] = len(t.get("tp_levels_hit", []))
+                    t["max_rung_reached_before_stop"] = max(t.get("tp_levels_hit") or [0])
+                    t["post_mortem"] = cls.post_mortem(t)
+                    resolved.append(t)
+                else:
+                    still_open.append(t)
             cls._atomic_write(SHADOW_OPEN_FILE, still_open)
-
             if resolved:
-                closed = cls.load_closed()
-                closed.extend(resolved)
-                if len(closed) > cls.MAX_CLOSED_RECORDS:
-                    closed = closed[-cls.MAX_CLOSED_RECORDS:]
-                cls._atomic_write(SHADOW_CLOSED_FILE, closed)
-
+                cls._atomic_write(SHADOW_CLOSED_FILE, (cls.load_closed() + resolved)[-cls.MAX_CLOSED_RECORDS:])
         return resolved
-
-    # ------------------------------------------------------------------
-    @classmethod
-    def _resolve(cls, trade: dict, exit_price: float, outcome: str) -> dict:
-        entry = trade["entry"]
-        direction = trade["direction"]
-        if direction == "LONG":
-            pnl_pct = (exit_price - entry) / entry * 100
-        else:
-            pnl_pct = (entry - exit_price) / entry * 100
-
-        # A win is a clean win. SL_THEN_TP is explicitly NOT counted as a win, because
-        # in live trading the stop would have closed the position before the recovery.
-        # A win is defined by reaching the PLANNED exit rung before the stop. The
-        # trade keeps being observed past that point purely to measure how far price
-        # ran, which never changes whether it was a win.
-        is_win = outcome.startswith("TP") and outcome.endswith("_HIT")
-
-        trade = dict(trade)
-        trade.update({
-            "closed_epoch": time.time(),
-            "closed_time": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "exit_price": exit_price,
-            "outcome": outcome,
-            "is_win": bool(is_win),
-            "pnl_pct": round(pnl_pct, 4),
-            "hold_hours": round((time.time() - trade.get("opened_epoch", time.time())) / 3600.0, 2),
-            "tp_levels_hit_count": len(trade.get("tp_levels_hit", [])),
-            # Observational only: how far price ran before the stop was tagged. The
-            # RESULT is the exit level above; these rungs never change it.
-            "max_rung_reached_before_stop": max(trade.get("tp_levels_hit") or [0]),
-        })
-        trade["logic_version"] = cls.LOGIC_VERSION
-        trade["post_mortem"] = cls.post_mortem(trade)
-        return trade
 
     # ------------------------------------------------------------------
     @classmethod
@@ -763,7 +580,9 @@ class ShadowTradeLedger:
     @classmethod
     def current_version_records(cls) -> list:
         """Only records resolved under the CURRENT logic. This is what calibration sees."""
-        return [t for t in cls.load_closed() if t.get("logic_version") == cls.LOGIC_VERSION]
+        return [t for t in cls.load_closed() if t.get("logic_version") == cls.LOGIC_VERSION
+                and not t.get("still_running") and not t.get("data_quality_error")
+                and (t.get("features") or {}).get("feature_version") == FEATURE_VERSION]
 
     @classmethod
     def audit_integrity(cls, repair: bool = False) -> dict:
@@ -1131,6 +950,8 @@ class ShadowTradeLedger:
         wins = losses = 0
         r_total = 0.0
         for t in closed:
+            if ruined:
+                break
             entry = float(t.get("entry", 0) or 0)
             sl = float(t.get("stop_loss", 0) or 0)
             if entry <= 0 or sl <= 0:

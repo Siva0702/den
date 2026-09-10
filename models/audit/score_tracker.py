@@ -1,4 +1,5 @@
 # models/audit/score_tracker.py
+import math
 import statistics
 import threading
 import time
@@ -32,6 +33,7 @@ class ScoreStabilityTracker:
     MAX_DECAY_SLOPE = -1.5      # points per scan; steeper than this is a fading setup
     STALE_SECONDS = 900         # drop tracking for setups not seen in 15 min
 
+    _observations = {}
     _history = {}
     _lock = threading.Lock()
 
@@ -41,12 +43,26 @@ class ScoreStabilityTracker:
 
     # ------------------------------------------------------------------
     @classmethod
-    def record(cls, ticker: str, direction: str, score: float) -> None:
+    def record(cls, ticker, direction, score, observation_id=None):
         key = cls._key(ticker, direction)
+        now = time.time()
         with cls._lock:
-            if key not in cls._history:
-                cls._history[key] = deque(maxlen=cls.WINDOW)
-            cls._history[key].append((time.time(), float(score)))
+            other = cls._key(ticker, "SHORT" if direction == "LONG" else "LONG")
+            cls._history.pop(other, None)
+            cls._observations.pop(other, None)
+            history = cls._history.setdefault(key, deque(maxlen=cls.WINDOW))
+            if not math.isfinite(float(score)):
+                history.clear()
+                return
+            if history and now-history[-1][0] > cls.STALE_SECONDS:
+                history.clear()
+                cls._observations.pop(key, None)
+            if observation_id is not None and cls._observations.get(key) == observation_id:
+                if history:
+                    history[-1] = (history[-1][0], float(score))
+                return
+            cls._observations[key] = observation_id
+            history.append((now, float(score)))
 
     @classmethod
     def prune(cls) -> None:
@@ -55,6 +71,7 @@ class ScoreStabilityTracker:
             dead = [k for k, v in cls._history.items() if not v or v[-1][0] < cutoff]
             for k in dead:
                 del cls._history[k]
+                cls._observations.pop(k, None)
 
     # ------------------------------------------------------------------
     @classmethod
@@ -79,6 +96,7 @@ class ScoreStabilityTracker:
         with cls._lock:
             samples = list(cls._history.get(cls._key(ticker, direction), []))
 
+        samples = [(t, s) for t, s in samples if time.time()-t <= cls.STALE_SECONDS]
         values = [s for _, s in samples]
         n = len(values)
 
@@ -105,6 +123,8 @@ class ScoreStabilityTracker:
         peak = max(values)
 
         failures = []
+        if samples[-1][0]-samples[-cls.MIN_CONSECUTIVE][0] < 110:
+            failures.append("confirmation has not persisted across two minutes")
         if consecutive < cls.MIN_CONSECUTIVE:
             failures.append(f"held threshold for only {consecutive}/{cls.MIN_CONSECUTIVE} consecutive scans")
         if stdev > cls.MAX_STDEV:

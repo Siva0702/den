@@ -65,6 +65,7 @@ class DispatchLedger:
                 os.unlink(tmp)
             except Exception:
                 pass
+            raise
         try:
             from audit.portable_store import PortableStateStore
             PortableStateStore.save_state("dispatch_ledger", payload)
@@ -117,6 +118,11 @@ class DispatchLedger:
                 "reward_risk": candidate.get("rr"),
                 "model_score": candidate.get("model_score"),
                 "model_prob": candidate.get("model_prob"),
+                "model_version": candidate.get("model_version"),
+                "entry_provenance": candidate.get("entry_provenance"),
+                "model_evidence": candidate.get("model_evidence"),
+                "margin": candidate.get("final_margin"),
+                "leverage": candidate.get("chosen_leverage"),
                 "pillar_score": candidate.get("pillar_score"),
                 "adjusted_score": candidate.get("adjusted_score"),
                 "calibrated_win_rate": candidate.get("calibrated_win_rate"),
@@ -154,21 +160,11 @@ class DispatchLedger:
 
             sign = 1.0 if str(dr).upper() == "LONG" else -1.0
 
-            # A stop fills AT the stop, not wherever price had run to by the time the
-            # monitor noticed. Booking the observed price recorded LMT as -2.82R on a
-            # trade whose stop caps it at -1R: entry 592.51, stop 596.55, exit 603.20.
-            # This is the same defect as bug #12 in the original audit, and it inflates
-            # losses without bound whenever price gaps past the level between scans.
-            if str(reason).upper().startswith("SL") and stop > 0:
-                # LONG: stop sits BELOW entry, so "past it" means exit < stop.
-                # SHORT: stop sits ABOVE entry, so "past it" means exit > stop.
-                beyond = (exit_price < stop) if sign > 0 else (exit_price > stop)
-                if beyond:
-                    exit_price = stop
-
+            # Execution supplied a gap-aware fill. Do not improve it back to the stop.
             gross_pct = (exit_price - entry) / entry * 100.0 * sign
             sl_pct = abs(entry - stop) / entry * 100.0 if stop else 0.0
-            now = time.time()
+            event = pos.get("execution_event") or {}
+            now = float(event.get("closed_epoch") or time.time())
 
             # ---- COSTS -------------------------------------------------------
             # Everything below is expressed as a % of NOTIONAL so it subtracts
@@ -178,13 +174,13 @@ class DispatchLedger:
             margin = float(pos.get("margin") or pos.get("final_margin") or 0.0)
             notional = margin * lev if (margin and lev) else None
 
-            fee_pct = cls.TAKER_FEE * 2 * 100.0        # open + close, both taker
+            fee_pct = cls.TAKER_FEE * (1 + exit_price/entry) * 100.0        # open + close, both taker
 
             opened = float(pos.get("epoch_time") or 0.0)
             hold_h = max((now - opened) / 3600.0, 0.0) if opened else 0.0
             # Funding is charged only to positions open AT a settlement stamp, so a
             # 46-minute trade usually pays none. Count the stamps actually crossed.
-            settlements = int(hold_h // cls.FUNDING_INTERVAL_H)
+            settlements = max(0, int(now // (cls.FUNDING_INTERVAL_H*3600)) - int(opened // (cls.FUNDING_INTERVAL_H*3600))) if opened else 0
             fr = pos.get("funding_rate")
             try:
                 fr = float(fr) if fr is not None else 0.0
@@ -193,7 +189,8 @@ class DispatchLedger:
             # Longs pay positive funding, shorts receive it.
             funding_pct = settlements * fr * 100.0 * sign
 
-            cost_pct = fee_pct + funding_pct
+            from indicators.execution import trade_cost_pct
+            cost_pct = event.get("cost_pct", trade_cost_pct(entry, exit_price, hold_h, fr))
             pnl_pct = gross_pct - cost_pct
             r_mult = (pnl_pct / sl_pct) if sl_pct else 0.0
             gross_r = (gross_pct / sl_pct) if sl_pct else 0.0
@@ -203,7 +200,9 @@ class DispatchLedger:
                 target = None
                 for r in reversed(rows):
                     if (r.get("status") == "OPEN" and r.get("ticker") == tk
-                            and r.get("direction") == dr):
+                            and r.get("direction") == dr
+                            and abs(float(r.get("entry") or 0)-entry) <= max(entry*1e-8, 1e-10)
+                            and (not pos.get("dispatch_id") or r.get("dispatch_id") == pos["dispatch_id"])):
                         target = r
                         break
                 if target is None:
@@ -213,9 +212,11 @@ class DispatchLedger:
                     recent = [r for r in rows if r.get("ticker") == tk
                               and r.get("direction") == dr
                               and r.get("status") == "CLOSED"
-                              and now - float(r.get("closed_epoch") or 0) < 86400]
+                              and abs(float(r.get("entry") or 0)-entry) <= max(entry*1e-8, 1e-10)
+                              and ((pos.get("dispatch_id") and r.get("dispatch_id") == pos["dispatch_id"])
+                                   or (not pos.get("dispatch_id") and abs(float(r.get("dispatched_epoch") or 0)-opened) < 60))]
                     if recent:
-                        return False
+                        return True
                 if target is None:
                     # Dispatched before this ledger existed, or by another path. Record
                     # it anyway — an orphan close is evidence, silence is not.
@@ -235,6 +236,9 @@ class DispatchLedger:
                     "closed_epoch": now,
                     "closed_time": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(now)),
                     "gross_pnl_pct": round(gross_pct, 4),
+                    "cost_pct": round(cost_pct, 4),
+                    "execution_version": event.get("logic_version"),
+                    "cost_basis": "estimated taker fees, slippage and funding allowance",
                     "fee_pct": round(fee_pct, 4),
                     "funding_pct": round(funding_pct, 4),
                     "funding_settlements": settlements,
@@ -246,6 +250,7 @@ class DispatchLedger:
                     "gross_r": round(gross_r, 4),
                     "r_multiple": round(r_mult, 4),        # NET
                     "is_win": r_mult > 0,
+                    "net_pnl_usd": round(notional * pnl_pct / 100, 2) if notional else None,
                 })
                 cls._atomic_write(rows[-cls.MAX_RECORDS:])
             return True

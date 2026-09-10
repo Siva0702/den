@@ -4,6 +4,7 @@ import os
 import requests
 import threading
 import time
+import tempfile
 
 class UpstashRedisStateSync:
     """
@@ -167,19 +168,28 @@ class UpstashRedisStateSync:
             ok, val = cls._redis_cmd(["GET", redis_key])
             if ok and val:
                 try:
-                    val_str = val if isinstance(val, str) else json.dumps(val)
+                    parsed = json.loads(val) if isinstance(val, str) else val
+                    if not isinstance(parsed, (list, dict)) or not parsed:
+                        continue
+                    if os.path.exists(abs_path):
+                        with open(abs_path) as f:
+                            local = json.load(f)
+                        if type(local) is not type(parsed):
+                            continue
+                        # An incomplete remote snapshot must not erase local outcomes.
+                        if rel_path.endswith(("shadow_closed.json", "dispatch_ledger.json", "dispatched_signals.json")) and len(parsed) < len(local):
+                            continue
+                    os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+                    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(abs_path), suffix=".tmp")
                     try:
-                        parsed = json.loads(val_str) if isinstance(val_str, str) else val_str
-                    except Exception:
-                        parsed = val_str
-
-                    # SAFETY GUARD: Only restore if pulled data is non-empty! Never wipe local data with [] or {}.
-                    if parsed and len(parsed) > 0:
-                        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-                        with open(abs_path, "w") as f:
-                            f.write(val_str if isinstance(val_str, str) else json.dumps(val_str, indent=2))
-                        restored_count += 1
-                        print(f"[redis-sync] Restored {rel_path} ({len(parsed)} items)", flush=True)
+                        with os.fdopen(fd, "w") as f:
+                            json.dump(parsed, f, allow_nan=False)
+                        os.replace(tmp, abs_path)
+                    finally:
+                        if os.path.exists(tmp):
+                            os.unlink(tmp)
+                    restored_count += 1
+                    print(f"[redis-sync] Restored {rel_path} ({len(parsed)} items)", flush=True)
                 except Exception as e:
                     print(f"[redis-sync] Error writing {rel_path}: {e}", flush=True)
 

@@ -45,12 +45,14 @@ class EngineEfficiencyTracker:
     def record_trade_outcome(cls, ticker: str, direction: str, entry: float,
                              exit_price: float, outcome: str, pnl_usd: float,
                              factor_scores: dict = None, win_rate_at_entry: float = 0.0,
-                             user_positioned: bool = False) -> dict:
+                             user_positioned: bool = False, trade_id: str = None) -> dict:
         """
         Record a completed trade outcome with optional factor score snapshot.
         factor_scores: dict of {factor_name: score} from confluence engine at signal time.
         """
         data = cls.load_efficiency_data()
+        if trade_id and any(r.get("trade_id") == trade_id for r in data.get("history", [])):
+            return data
 
         # BREAKEVEN is now a real outcome (reached TP1, trailed back to entry). The old
         # binary `if WIN else LOSS` booked every one of them as a LOSS, understating the
@@ -88,7 +90,7 @@ class EngineEfficiencyTracker:
         if outcome == "WIN":
             tk["wins"] += 1
             tk["streak"] = max(tk["streak"], 0) + 1
-        else:
+        elif outcome not in ("BREAKEVEN", "SCRATCH"):
             tk["losses"] += 1
             tk["streak"] = min(tk["streak"], 0) - 1
         tk["net_pnl"] = round(tk["net_pnl"] + pnl_usd, 2)
@@ -96,6 +98,7 @@ class EngineEfficiencyTracker:
 
         # Trade record with factor snapshot
         trade_record = {
+            "trade_id": trade_id,
             "ticker": ticker,
             "direction": direction,
             "entry_price": entry,

@@ -1,6 +1,7 @@
 # models/auto_scanner.py
 # Den Engine v39.0 — Calibrated Multi-Asset Quant Scanner
 import os
+import math
 import sys
 import time
 import json
@@ -16,6 +17,8 @@ from dotenv import load_dotenv
 sys.stdout.reconfigure(line_buffering=True)
 sys.path.append(os.path.dirname(__file__))
 
+from indicators.execution import trade_cost_pct, LOGIC_VERSION, MAX_HOLD_SECONDS
+from indicators.risk_policy import kelly_size, dispatch_eligibility, candidate_rank
 from indicators.confluence_engine import SureShotConfluenceEngine
 from indicators.exchange_leverage import ExchangeLeverageEngine
 from indicators.liquidity_map import LiquidityMapEngine
@@ -23,15 +26,18 @@ from indicators.event_volatility import EventVolatilityEngine
 from indicators.correlation_defense import CorrelationDefenseEngine
 from alerts.signal_cooldown import SignalCooldownEngine
 from alerts.telegram_bot import TelegramAlertBot
+from audit.decision_report import build_status, save_status, render_status
 from audit.engine_efficiency import EngineEfficiencyTracker
 from audit.shadow_ledger import ShadowTradeLedger
 from audit.dispatch_ledger import DispatchLedger
 from audit.calibration import WinRateCalibrator
 from audit.score_model import CalibratedScoreModel
+from audit.scoring_context import CONTEXT_VERSION
 from audit.score_tracker import ScoreStabilityTracker
 from audit.redis_state_sync import UnifiedStateSync as GitStateSync
 from data.exchange_feed import BitunixWeexLiveFeed
 from data.liquidation_proxy import LiquidationProxy
+from data.market_clock import market_clock_features
 from data.derivatives_feed import DerivativesIntelligence
 from news.market_universe import DynamicMarketUniverse
 from news.news_intelligence import PerAssetNewsIntelligence
@@ -40,42 +46,21 @@ from news.event_outcomes import EventOutcomeLearner
 from position_monitor import ActivePositionMonitor
 
 load_dotenv()
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or "8847828896:AAFcTqjJGe6VN6mbPHcB1QTlvkpQxhb5ntI"
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID") or "7347569157"
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-ENGINE_VERSION = "v39.0"
-ACCOUNT_BALANCE = 1000.0
+ENGINE_VERSION = "v43.0-audited"
+ACCOUNT_BALANCE = float(os.getenv("DEN_ACCOUNT_BALANCE", "1000"))
+PUBLIC_HEALTH_URL = os.getenv("DEN_PUBLIC_HEALTH_URL", "http://13.140.188.62:10000/")
 
-# ---- Dispatch gates -------------------------------------------------------
-HARD_SCORE_FLOOR = 78.0        # the user's standing rule: nothing below this is a signal
-RELAXED_SCORE_FLOOR = 72.0     # engaged only after a long dry spell, and labelled as such
-DRY_SPELL_HOURS = 12.0         # how long with no signal before the relaxed tier engages
-MIN_CALIBRATED_WIN_RATE = 0.50 # once calibrated, refuse setups the data says are coin flips
-ENRICH_TOP_N = 30              # candidates promoted to enrichment (also the shadow-learning pool)
-# Measured on the Contabo box with disjoint ticker sets (a naive A/B is meaningless
-# here — the candle-aligned cache makes the second run look instant):
-#   6 workers -> ~61s   16 -> ~29s   32 -> ~43s for 87 assets
-# The work is network-bound, so more threads help until Binance starts rate-limiting,
-# which is what makes 32 slower than 16.
+# Fixed candidate threshold; inactivity never lowers it.
+HARD_SCORE_FLOOR = 78.0
+ENRICH_TOP_N = 30
 MAX_FETCH_WORKERS = 16
-# Below this, round-trip fees consume more than ~0.15R per trade. See the fee-aware
-# stop floor in the scan loop for the measurement behind this number.
-MIN_STOP_PCT = 0.008
-MIN_RISK_USD = 10.0            # risk floor used while the engine has no measured edge
-# Structure-based targets expose setups where price has no room before the next
-# liquidity pool. Risking 1R to make 0.43R loses money at any win rate below 70%,
-# so those are rejected outright rather than sized down.
-MIN_REWARD_RISK = 1.2
-# Throughput. v39.2 dispatched ONE signal per scan then stopped, which was the single
-# biggest structural cap on signal count. Now up to MAX_SIGNALS_PER_SCAN may fire, but
-# every one must independently clear all five gates — this raises throughput without
-# lowering the bar, which is the opposite of spamming.
+MIN_STOP_PCT = 0.008  # explicit planning assumption, to be tested prospectively
 MAX_SIGNALS_PER_SCAN = 3
 MAX_SIGNALS_PER_DAY = 8
-# Conviction-scaled risk. A 50% setup and an 80% setup previously both risked $50
-# because half-Kelly was clamped flat. Risk now scales with measured win rate.
-RISK_FLOOR_USD = 12.0
-RISK_CEIL_USD = 75.0
+# All monetary risk limits and candidate eligibility live in indicators/risk_policy.py.
 
 monitor = ActivePositionMonitor(BOT_TOKEN, CHAT_ID)
 telegram = TelegramAlertBot(BOT_TOKEN, CHAT_ID)
@@ -153,7 +138,7 @@ def self_ping_keep_alive():
     while True:
         time.sleep(120)
         try:
-            requests.get("https://den-quant-scanner.onrender.com/", timeout=10)
+            requests.get(PUBLIC_HEALTH_URL, timeout=10)
         except Exception:
             pass
 
@@ -161,47 +146,8 @@ def self_ping_keep_alive():
 # ============================================================
 # SIZING — Half Kelly on the CALIBRATED win rate
 # ============================================================
-def kelly_position_size(win_rate: float, reward_risk_ratio: float,
-                        account_balance: float, max_risk_pct: float = 0.05) -> dict:
-    """
-    Half-Kelly. The critical change from v38 is the INPUT: this is now fed the
-    empirically calibrated win rate rather than score/100, so the size reflects
-    measured edge instead of a rescaled score.
-    """
-    p = max(0.0, min(win_rate, 0.95))
-    q = 1.0 - p
-    b = reward_risk_ratio
-    kelly = (p * b - q) / b if b > 0 else 0.0
-    kelly = max(kelly, 0.0)
-    half = kelly * 0.5
-    risk_fraction = min(half, max_risk_pct)
-    dollars = round(account_balance * risk_fraction, 2)
-
-    # Conviction scaling. The old flat clamp made every setup risk the same amount no
-    # matter what the calibrated win rate said, which meant the measured edge changed
-    # position size by exactly nothing. Map win rate onto the risk band so the setups
-    # the data actually likes get paid more, with the same worst case.
-    # KELLY'S VETO IS ABSOLUTE.
-    # Raw Kelly goes NEGATIVE below the break-even win rate — at 21.4% with 1.5 R:R it
-    # is -0.310, meaning "this bet loses money, do not take it". The RISK_FLOOR_USD I
-    # added for conviction scaling was overriding that and still risking $12, which
-    # defeats the one function Kelly exists to perform. A negative edge now returns zero
-    # size and the caller must skip the trade entirely.
-    raw_kelly = (p * b - q) / b if b > 0 else -1.0
-    if raw_kelly <= 0:
-        return {"kelly_full": round(raw_kelly, 4), "kelly_half": 0.0,
-                "dollars_at_risk": 0.0, "risk_pct": 0.0,
-                "veto": True,
-                "veto_reason": f"negative edge: WR {p*100:.1f}% at {b:.2f} R:R needs "
-                               f"{100/(1+b):.1f}% to break even"}
-
-    conviction = max(0.0, min((p - 0.45) / 0.35, 1.0))          # 45% -> 0, 80% -> 1
-    target = RISK_FLOOR_USD + conviction * (RISK_CEIL_USD - RISK_FLOOR_USD)
-    dollars = round(min(dollars, target) if dollars > 0 else target, 2)
-    dollars = max(RISK_FLOOR_USD, min(dollars, RISK_CEIL_USD))
-    return {"kelly_full": round(kelly, 4), "kelly_half": round(half, 4),
-            "dollars_at_risk": dollars, "risk_pct": round(risk_fraction * 100, 2),
-            "veto": False}
+def kelly_position_size(win_rate, reward_risk_ratio, account_balance, max_risk_pct=.01, cost_r=0.0, **payoffs):
+    return kelly_size(win_rate, reward_risk_ratio, account_balance, max_risk_pct, cost_r, **payoffs)
 
 
 # ============================================================
@@ -406,70 +352,34 @@ _{da['interpretation']}_
 
 
 def build_dispatch_report() -> str:
-    """Telegram view of the DISPATCHED signal ledger. Net of fees and funding."""
-    try:
-        from audit.dispatch_ledger import DispatchLedger
-        rows = DispatchLedger.load()
-        if not rows:
-            return ("\U0001F4E1 **DISPATCHED SIGNALS**\n" + "\u2501" * 28 +
-                    "\n_No dispatched signals recorded yet._\n"
-                    "The audit ledger starts at the first dispatch after deploy; "
-                    "signals sent before it existed were never persisted.")
-        closed = [r for r in rows if r.get("status") == "CLOSED"]
-        live = [r for r in rows if r.get("status") != "CLOSED"]
-        out = ["\U0001F4E1 **DISPATCHED SIGNALS**", "\u2501" * 28]
-        if live:
-            out.append(f"\U0001F7E1 **OPEN ({len(live)})**")
-            for r in sorted(live, key=lambda x: x.get("dispatched_epoch") or 0):
-                out.append(f"`{r.get('ticker'):<11}` {r.get('direction'):<5} "
-                           f"score `{(r.get('model_score') or 0):.0f}` "
-                           f"entry `{r.get('entry')}` lev `{r.get('leverage')}x`")
-            out.append("")
-        if closed:
-            out.append(f"\u2705 **CLOSED ({len(closed)})**")
-            tot_net = tot_fee = 0.0
-            for r in sorted(closed, key=lambda x: x.get("closed_epoch") or 0):
-                nz = r.get("notional") or 0.0
-                net = (r.get("pnl_pct") or 0.0) / 100.0 * nz
-                tot_net += net
-                tot_fee += r.get("fee_usd") or 0.0
-                # exit_reason carries underscores (SCRATCHED_BREAKEVEN, TP1_HIT,
-                # SL_THEN_TP). Bare in Markdown those open an italic span that never
-                # closes, and Telegram rejects the WHOLE message with a 400. Backticks
-                # make it literal.
-                out.append(f"`{r.get('ticker'):<11}` `{str(r.get('exit_reason'))}` "
-                           f"netR `{(r.get('r_multiple') or 0):+.2f}` `${net:+,.2f}`")
-            Rs = [float(r.get("r_multiple") or 0.0) for r in closed]
-            gRs = [float(r.get("gross_r") or 0.0) for r in closed]
-            w = sum(1 for r in closed if r.get("is_win"))
-            out += ["", "\u2501" * 28,
-                    f"\U0001F4CA **{w}W / {len(closed) - w}L** \u2014 "
-                    f"`{w / len(closed) * 100:.1f}%` accuracy",
-                    f"\U0001F4C8 total R gross `{sum(gRs):+.2f}` \u2192 "
-                    f"**NET `{sum(Rs):+.2f}`**",
-                    f"\U0001F4B8 fees paid `${tot_fee:,.2f}`",
-                    f"\U0001F4B0 net P&L `${tot_net:+,.2f}` \u2014 "
-                    f"equity `${1000 + tot_net:,.2f}`"]
-            if len(closed) < 20:
-                out.append(f"\n_{len(closed)} closed trades is too few to conclude "
-                           f"anything \u2014 this is a record, not evidence of edge._")
-        return "\n".join(out)
-    except Exception as e:
-        return f"\u26A0\uFE0F Dispatch report error: {e}"
+    rows = DispatchLedger.load()
+    closed = [r for r in rows if r.get("status") == "CLOSED" and r.get("execution_version") == LOGIC_VERSION]
+    old = sum(r.get("status") == "CLOSED" and r.get("execution_version") != LOGIC_VERSION for r in rows)
+    opened = sum(r.get("status") == "OPEN" for r in rows)
+    lines = ["DEN | PAPER SIGNAL RESULTS", f"Open: {opened} | resolved under current rules: {len(closed)}"]
+    if closed:
+        wins = sum(r.get("is_win") is True for r in closed)
+        lines.append(f"Net wins: {wins}/{len(closed)} ({100*wins/len(closed):.1f}%)")
+        known = [r for r in closed if r.get("net_pnl_usd") is not None]
+        if known:
+            lines.append(f"Estimated net P&L: ${sum(r['net_pnl_usd'] for r in known):+.2f} across {len(known)} sized trades")
+        for r in closed[-3:]:
+            lines.append(f"{r['ticker']} {r['direction']}: {r.get('exit_reason')} ({r.get('pnl_pct', 0):+.2f}% net)")
+    else:
+        lines.append("No current-version signal outcomes yet. Profitability is unproven.")
+    if old:
+        lines.append(f"{old} legacy outcomes retained separately; excluded from these results.")
+    lines.append("Estimates include modelled costs. Actual exchange fills are not connected.")
+    return "\n".join(lines)
 
 
 def build_help_report() -> str:
-    return ("\U0001F4D6 **DEN ENGINE \u2014 COMMANDS**\n" + "\u2501" * 28 + "\n"
-            "`/signals`  dispatched signals \u2014 net P&L, fees, open + closed\n"
-            "`/ledger`   shadow ledger \u2014 all paper trades, accuracy, equity\n"
-            "`/kelly`    Kelly-FUNDED cohort \u2014 trades Kelly backed\n"
-            "`/veto`     Kelly-VETOED cohort \u2014 trades Kelly refused\n"
-            "`/calendar` upcoming economic events and blackout windows\n"
-            "`/help`     this list\n\n"
-            "_Reply_ `positioned` _to a signal to mark that you took it._\n\n"
-            + "\u2501" * 28 + "\n"
-            "`/signals` is the only one measuring REAL dispatched trades. "
-            "`/ledger` is paper trades used for learning \u2014 a different book.")
+    return ("DEN — three things to read\n"
+            "/status — trade or wait, model evidence and dollar-risk policy\n"
+            "/signals — dispatched paper outcomes after costs\n"
+            "/calendar — scheduled events\n"
+            "Only SIGNAL messages are setups. WAIT means no trade. "
+            "Reply positioned to a signal if you entered it.")
 
 
 def poll_positioned_replies():
@@ -486,7 +396,7 @@ def poll_positioned_replies():
                     text = reply.get("text", "").strip().lower()
                     rid = reply.get("reply_to_message_id")
                     # On-demand ledger report.
-                    if text in ("/kelly", "kelly") or ("kelly" in text and "board" in text):
+                    if text in ("/research_kelly",):
                         try:
                             telegram.send_alert(build_cohort_dashboard(vetoed=False))
                         except Exception as e:
@@ -510,6 +420,9 @@ def poll_positioned_replies():
                         except Exception as e:
                             print(f"[!] Dispatch report error: {e}", flush=True)
                         continue
+                    if text in ("/status", "status", "/kelly", "kelly"):
+                        telegram.send_alert(render_status())
+                        continue
                     if text in ("/help", "/commands", "help", "/start"):
                         try:
                             telegram.send_alert(build_help_report())
@@ -518,17 +431,18 @@ def poll_positioned_replies():
                         continue
                     if ("shadow" in text and "ledger" in text) or text in ("/ledger", "/shadow", "ledger"):
                         try:
-                            telegram.send_alert(build_ledger_report())
+                            telegram.send_alert(render_status())
                         except Exception as e:
                             print(f"[!] Ledger report error: {e}", flush=True)
                         continue
                     if rid in dispatched_message_ids and "position" in text:
                         ticker = dispatched_message_ids[rid]
-                        positions = monitor.load_positions()
-                        for pos in positions:
-                            if pos.get("ticker") == ticker:
-                                pos["user_positioned"] = True
-                        monitor.save_positions(positions)
+                        with monitor._lock:
+                            positions = monitor.load_positions()
+                            for pos in positions:
+                                if pos.get("ticker") == ticker:
+                                    pos["user_positioned"] = True
+                            monitor.save_positions(positions)
                         telegram.send_alert(
                             f"✅ **Positioned confirmed: {ticker}**\nTracking your trade for performance reporting.")
         except Exception as e:
@@ -544,7 +458,7 @@ def fetch_asset_frames(item: dict) -> dict:
     ticker = item["ticker"]
     base_p = item.get("base_price", 100.0)
     out = {"ticker": ticker, "item": item}
-    df_15m, real = BitunixWeexLiveFeed.get_exchange_ohlcv(ticker, base_p, "15m")
+    df_15m, real = BitunixWeexLiveFeed.get_exchange_ohlcv(ticker, base_p, "15m", limit=260, closed_snapshot=True)
     if df_15m is None or not real or len(df_15m) < 100:
         out["ok"] = False
         return out
@@ -555,7 +469,7 @@ def fetch_asset_frames(item: dict) -> dict:
     # 86 responses every scan — roughly 20% of all calls, for data nothing reads.
     # It is fetched lazily at the dispatch gate instead.
     for tf in ("1h", "4h", "1d"):
-        df, _ = BitunixWeexLiveFeed.get_exchange_ohlcv(ticker, base_p, tf)
+        df, _ = BitunixWeexLiveFeed.get_exchange_ohlcv(ticker, base_p, tf, closed_snapshot=True)
         out[f"df_{tf}"] = df if df is not None and len(df) > 20 else None
     return out
 
@@ -568,7 +482,8 @@ def entry_timing_ok(df_5m, direction: str) -> tuple:
     execution timeframe to not be stretched against us at the moment of entry.
     """
     if df_5m is None or len(df_5m) < 30:
-        return True, "no 5m data — timing filter skipped"
+        return False, "no 5m data — entry timing cannot be verified"
+    df_5m = df_5m.iloc[:-1]
     close = df_5m['close']
     ema9 = close.ewm(span=9, adjust=False).mean()
     dev = (float(close.iloc[-1]) - float(ema9.iloc[-1])) / max(abs(float(ema9.iloc[-1])), 1e-12)
@@ -651,37 +566,8 @@ def build_tp_ladder(entry: float, sl: float, direction: str, atr: float,
     targets = [t for t in targets if (t > floor if direction == "LONG" else t < floor)][:4]
     if not targets:
         targets = [entry + risk * m if direction == "LONG" else entry - risk * m for m in fallback]
-    return [format_price_raw(t) for t in targets[:4]]
+    return [float(t) for t in targets[:4]]
 
-
-def market_clock_features(now_utc=None) -> dict:
-    """
-    Weekend / US-session context, RECORDED rather than acted on.
-
-    A calendar blackout would delete the only data that could answer whether weekend
-    setups are worth taking — the same mistake as blocking entries around news events.
-    These are captured at trade-open so the ledger can measure the effect, and a gate
-    can be set later from evidence instead of assertion.
-
-    US regular hours are 13:30-20:00 UTC (09:30-16:00 ET) while the US is on EDT.
-    """
-    u = now_utc or datetime.now(timezone.utc)
-    minutes = u.hour * 60 + u.minute
-    is_weekend = u.weekday() >= 5
-
-    target = u.replace(hour=13, minute=30, second=0, microsecond=0)
-    if u >= target:
-        target += timedelta(days=1)
-    while target.weekday() >= 5:            # US cash market does not open Sat/Sun
-        target += timedelta(days=1)
-
-    return {
-        "is_weekend": is_weekend,
-        "is_rth": (not is_weekend) and (810 <= minutes < 1200),
-        "hours_to_us_open": round((target - u).total_seconds() / 3600.0, 2),
-        "utc_weekday": u.weekday(),
-        "utc_hour": u.hour,
-    }
 
 
 def realised_range_pct(df_15m, bars: int = 4):
@@ -758,87 +644,54 @@ def run_continuous_quant_hunter():
                      "low": float(f["df_15m"].iloc[-1]['low'])}
                  for t, f in frames.items()}
 
-    # 1-MINUTE RESOLUTION FOR OPEN SHADOW TRADES.
-    # The live ledger was resolving against the CURRENT, still-forming 15m candle, while
-    # replayed records used 1m bars — so a live TP1_HIT and a replayed TP1_HIT were not
-    # the same measurement, and version stamping could not detect the difference. Worse,
-    # a partial 15m candle understates its own extremes, so wicks through a stop between
-    # scans were invisible. Only tickers with an OPEN shadow trade are refetched, so the
-    # cost is bounded by the size of the book rather than the universe.
-    # (Binance USD-M has no 1s interval — 1m is the finest available for futures.)
-    try:
-        open_tickers = {t.get("ticker") for t in ShadowTradeLedger.load_open()
-                        if t.get("ticker") in frames}
+    # Preserve every minute and its timestamp. Never collapse a path into a range.
+    open_shadow = [t for t in ShadowTradeLedger.load_open() if t.get("config_version") == LOGIC_VERSION]
+    target_tickers = set(frames) | active_tickers | {t["ticker"] for t in open_shadow}
+    since = {}
+    for p in open_shadow + active_positions:
+        tk = p.get("ticker")
+        cursor = p.get("last_bar_ts")
+        op = p.get("opened_epoch", p.get("epoch_time", scan_start))
+        start = cursor/1000 if cursor is not None else float(op)
+        since[tk] = min(since.get(tk, start), start)
 
-        # Candidates: non-open tickers whose 15m preliminary score cleared SHADOW_FLOOR
-        candidate_tickers = {t for t, cached in PRELIM_CACHE.items()
-                             if t in frames and cached and len(cached) > 1
-                             and isinstance(cached[1], dict)
-                             and cached[1].get("total_score", 0) >= ShadowTradeLedger.SHADOW_FLOOR}
+    def _m1(tk):
+        position = next((p for p in active_positions + open_shadow if p.get("ticker") == tk), {})
+        provider = (position.get("entry_provenance") or {}).get("provider")
+        m1, real = BitunixWeexLiveFeed.get_exchange_ohlcv(tk, 0, "1m", limit=3, provider=provider)
+        if m1 is None or not real:
+            return tk, None
+        bars = [dict(b, provider=m1.attrs.get("provider")) for b in m1.to_dict("records")]
+        if tk in since and (int(since[tk]//60)+1)*60000 < int(m1.iloc[0]["timestamp"]):
+            bars = BitunixWeexLiveFeed.execution_history(tk, since[tk], provider=provider or m1.attrs.get("provider"))
+        return tk, {"close": float(m1.iloc[-1]["close"]),
+                    "bars": bars, "quote_bar_ts": int(m1.iloc[-2]["timestamp"]),
+                    "fetched_at": m1.attrs.get("fetched_at", 0)}
 
-        # DISPATCHED POSITIONS FIRST. These carry real money and were the ONLY book
-        # not on 1m: `open_tickers` is the shadow ledger, and position tickers are
-        # skipped during prelim scoring so they never reached `candidate_tickers`
-        # either. They resolved TP/SL against a cached 15m close up to 15 minutes
-        # stale — the exact defect Rule 1 exists to prevent, on the only trades where
-        # being wrong costs money.
-        position_tickers = {p.get("ticker") for p in active_positions
-                            if isinstance(p, dict) and p.get("ticker") in frames}
-        target_tickers = [t for t in frames
-                          if t in (position_tickers | open_tickers | candidate_tickers)]
+    with ThreadPoolExecutor(max_workers=MAX_FETCH_WORKERS) as pool:
+        for fut in as_completed([pool.submit(_m1, tk) for tk in target_tickers]):
+            try:
+                tk, quote = fut.result()
+                if quote:
+                    price_map[tk] = quote
+            except Exception as e:
+                print(f"[data] minute feed unavailable: {type(e).__name__}", flush=True)
 
-        open_since = {}
-        for t in ShadowTradeLedger.load_open():
-            tk_ = t.get("ticker")
-            op = float(t.get("opened_epoch", 0) or 0)
-            if tk_ and op:
-                open_since[tk_] = min(open_since.get(tk_, op), op)
-
-        def _m1(tk):
-            m1, real = BitunixWeexLiveFeed.get_exchange_ohlcv(tk, 0, "1m", limit=30)
-            if m1 is None or not real or len(m1) < 2:
-                return None
-            since_ms = int(open_since.get(tk, 0) * 1000)
-            if since_ms and "timestamp" in m1.columns:
-                # Strictly after the opening minute; that minute is ambiguous.
-                fresh = m1[m1["timestamp"] > since_ms]
-            else:
-                fresh = m1.iloc[-1:]
-            if fresh.empty:
-                fresh = m1.iloc[-1:]          # nothing new yet: current bar only
-            return tk, {"close": float(m1.iloc[-1]['close']),
-                        "high": float(fresh['high'].max()),
-                        "low": float(fresh['low'].min())}
-
-        with ThreadPoolExecutor(max_workers=MAX_FETCH_WORKERS) as pool:
-            for fut in as_completed([pool.submit(_m1, tk) for tk in target_tickers]):
-                try:
-                    res = fut.result()
-                except Exception:
-                    res = None
-                if res:
-                    price_map[res[0]] = res[1]
-    except Exception as e:
-        print(f"[!] 1m resolution refresh failed: {e}", flush=True)
-
-    # ---- CRITICAL FIX: monitor open positions FIRST -------------------------
-    # v38 skipped any ticker already holding a position before it ever reached the
-    # monitor call, so TP/SL was never checked and no outcome was ever recorded.
     for ticker in active_tickers:
-        f = frames.get(ticker)
-        if not f:
+        f = frames.get(ticker) or {}
+        quote = price_map.get(ticker) or {}
+        if not quote.get("bars"):
             continue
-        price = format_price_raw(price_map[ticker]["close"])
-        df15 = f["df_15m"]
-        pos = next((p for p in active_positions if p.get("ticker") == ticker), None)
-        direction = (pos or {}).get("direction", "LONG")
-        structure_flipped = monitor.detect_structure_break(df15, direction)
+        pos = next((p for p in active_positions if p.get("ticker") == ticker), {})
         try:
-            _pm = price_map.get(ticker) or {}
-            monitor.check_active_positions(ticker, price, reg_multiplier, structure_flipped, df15,
-                                           bar_high=_pm.get("high"), bar_low=_pm.get("low"))
+            monitor.check_active_positions(
+                ticker, quote["close"], reg_multiplier,
+                monitor.detect_structure_break(f.get("df_15m"), pos.get("direction", "LONG")),
+                f.get("df_15m"), bars=quote["bars"])
         except Exception as e:
             print(f"[!] Position monitor error on {ticker}: {e}", flush=True)
+    active_positions = monitor.load_positions()
+    active_tickers = {p.get("ticker") for p in active_positions}
 
     # ---- Sample event reactions: learn how each asset behaves AFTER a catalyst ----
     try:
@@ -862,7 +715,7 @@ def run_continuous_quant_hunter():
         resolved = ShadowTradeLedger.update_prices(price_map)
         if resolved:
             try:
-                ShadowTradeLedger.audit_integrity(repair=True)
+                ShadowTradeLedger.audit_integrity(repair=False)
                 WinRateCalibrator.export_snapshot()
             except Exception:
                 pass
@@ -908,6 +761,7 @@ def run_continuous_quant_hunter():
 
     # ---- Stage 2: enrich only the leaders with derivatives + news -----------
     candidates = []
+    shadow_opened = 0
     for ticker, f, _ in prelim[:ENRICH_TOP_N]:
         try:
             derivatives = DerivativesIntelligence.analyze(ticker)
@@ -929,7 +783,7 @@ def run_continuous_quant_hunter():
             except Exception:
                 pass
             event_vol = EventVolatilityEngine.analyze(
-                f["df_15m"], float(prelim_atr.get(ticker) or 0.0), derivatives, calendar)
+                f["df_15m"].iloc[:-1], float(prelim_atr.get(ticker) or 0.0), derivatives, calendar)
 
             signal = SureShotConfluenceEngine.evaluate_setup(
                 ohlcv_15m=f["df_15m"], ohlcv_1h=f["df_1h"], ohlcv_4h=f["df_4h"], ohlcv_1d=f["df_1d"],
@@ -942,43 +796,38 @@ def run_continuous_quant_hunter():
             if direction == "NONE" or score < ShadowTradeLedger.SHADOW_FLOOR:
                 continue
 
-            entry = format_price_raw(price_map[ticker]["close"])
+            # Refresh after enrichment, which may spend seconds fetching news.
+            quote_df, quote_real = BitunixWeexLiveFeed.get_exchange_ohlcv(ticker, 0, "1m", limit=3)
+            if quote_df is None or not quote_real or float(quote_df.iloc[-3:]["volume"].sum()) <= 0:
+                continue
+            price_map[ticker] = {"close": float(quote_df.iloc[-1]["close"]),
+                                 "bars": [dict(b, provider=quote_df.attrs.get("provider")) for b in quote_df.to_dict("records")],
+                                 "quote_bar_ts": int(quote_df.iloc[-2]["timestamp"]),
+                                 "fetched_at": quote_df.attrs.get("fetched_at", 0)}
+            entry = price_map[ticker]["close"]
             atr_val = signal.get("atr", entry * 0.01)
 
             # Liquidity-aware stop, widened by whatever the shadow data says winners need.
-            cal_model = WinRateCalibrator.build_model()
-            sl_mult = (cal_model.get("sl_stats") or {}).get("recommended_sl_multiplier")
+            sl_mult = None  # stop changes require independent replay evidence
             stop = LiquidityMapEngine.safe_stop_loss(
                 f["df_15m"], direction, entry, atr_val,
                 liquidity=signal.get("liquidity"), calibrated_multiplier=sl_mult)
-            sl = format_price_raw(stop["stop_loss"])
-            sl_pct = stop["sl_pct"]
+            sl = float(stop["stop_loss"])
+            sl_pct = abs(entry-sl)/entry
             if sl_pct < 0.001:
                 continue
 
-            # FEE-AWARE STOP FLOOR.
-            # Round-trip taker cost is 0.12% of NOTIONAL, and notional is risk/stop%, so
-            # fee drag in R is simply 0.12/stop% — a function of stop DISTANCE, nothing
-            # else. Leverage does not enter it. Measured across 1903 shadow trades:
-            #
-            #   stop 0.0-0.5%   gross +0.548R   fees -0.480R   net +0.068R
-            #   stop 0.8-1.2%   gross +0.289R   fees -0.120R   net +0.169R
-            #   stop 1.2-2.0%   gross +0.267R   fees -0.075R   net +0.192R
-            #
-            # The tightest stops have the BEST raw edge and the WORST realised one,
-            # because costs eat 88% of it. Widening only pushes the stop further beyond
-            # the liquidity pool it already sits behind, and position size shrinks to
-            # hold dollar risk constant — so R is unchanged and the fee share falls.
+            # Explicit cost floor; widening changes R and the path-dependent outcome.
+            # The model must validate records generated with these levels.
             if sl_pct < MIN_STOP_PCT:
                 widened = MIN_STOP_PCT
-                sl = format_price_raw(entry * (1 - widened) if direction == "LONG"
-                                      else entry * (1 + widened))
+                sl = entry * (1 - widened) if direction == "LONG" else entry * (1 + widened)
                 sl_pct = widened
 
             tp_ladder = build_tp_ladder(entry, sl, direction, atr_val, signal.get("liquidity"))
             if not tp_ladder:
                 continue
-            primary_tp = tp_ladder[0]          # TP1 is the planned exit — measured as the only profitable rung
+            primary_tp = tp_ladder[0]          # conservative planning reward; execution can trail further
             tp_pct = abs(primary_tp - entry) / entry
             rr = tp_pct / sl_pct if sl_pct else 0.0
             # NOTE: the R:R gate deliberately does NOT live here. It is a DISPATCH
@@ -991,7 +840,10 @@ def run_continuous_quant_hunter():
 
             # ---- Calibrated probability, not score/100 ----
             features = dict(signal.get("feature_snapshot", {}))
+            features["scoring_context_version"] = CONTEXT_VERSION
             features["session"] = session_name
+            features["taker_buy_sell_ratio"] = ((derivatives or {}).get("taker") or {}).get("taker_buy_sell_ratio")
+            features["bid_ask_imbalance"] = ((derivatives or {}).get("book") or {}).get("bid_ask_imbalance")
             features["factors_passed"] = signal.get("factors_passed", [])
             features["reward_risk"] = round(rr, 3)
             features["sl_pct"] = round(sl_pct, 5)
@@ -1003,9 +855,9 @@ def run_continuous_quant_hunter():
             # Liquidation cascade read, derived from OI destruction rather than a paid
             # feed. Captured only; the model decides whether it carries any signal.
             try:
-                _d15 = f["df_15m"]
+                _d15 = f["df_15m"].iloc[:-1]
                 _chg = ((float(_d15['close'].iloc[-1]) - float(_d15['close'].iloc[-13]))
-                        / float(_d15['close'].iloc[-13]) * 100.0) if len(_d15) > 13 else 0.0
+                        / float(_d15['close'].iloc[-13]) * 100.0) if len(_d15) >= 13 else None
                 features.update(LiquidationProxy.features(LiquidationProxy.analyze(
                     (derivatives or {}).get("open_interest"), _chg,
                     (derivatives or {}).get("crowding"))))
@@ -1020,14 +872,18 @@ def run_continuous_quant_hunter():
             effective_score = model_score if (model_avail and model_score is not None) else score
 
             # WinRateCalibrator bin lookup stays on the pillar/adjusted scale `score`
-            cal = WinRateCalibrator.calibrated_win_rate(score, features)
             # Kelly position sizing consumes model_prob directly when model is available
-            win_rate = model_prob if (model_avail and model_prob is not None) else cal["win_rate"]
+            win_rate = score_mod.get("prob_lower") if model_avail else None
+            cal = {"status": "CALIBRATED" if score_mod.get("tradable") else "UNCALIBRATED",
+                   "win_rate": win_rate, "samples": score_mod.get("samples", 0),
+                   "basis": score_mod.get("reason")}
 
-            # With no measured edge, Kelly has nothing to optimise. Size at the floor.
-            kelly = (kelly_position_size(win_rate, rr, ACCOUNT_BALANCE) if win_rate is not None
-                     else {"kelly_full": 0.0, "kelly_half": 0.0,
-                           "dollars_at_risk": MIN_RISK_USD, "risk_pct": 0.0})
+            funding_rate = float(((derivatives or {}).get("funding") or {}).get("funding_rate", 0) or 0)
+            cost_pct = trade_cost_pct(entry, primary_tp, MAX_HOLD_SECONDS/3600, funding_rate)/100
+            cost_r = cost_pct/sl_pct
+            kelly = kelly_position_size(win_rate, rr, ACCOUNT_BALANCE, cost_r=cost_r,
+                                        win_payoff_r=score_mod.get("win_payoff_r"),
+                                        loss_payoff_r=score_mod.get("loss_payoff_r"))
             # Cap the REQUEST as well as the exchange limit. A 0.4% stop asks for 100x,
             # and while the venue cap trims it, requesting absurd leverage means the
             # binding constraint is the exchange rather than our own risk view.
@@ -1050,13 +906,15 @@ def run_continuous_quant_hunter():
             lev_meta = ExchangeLeverageEngine.get_calibrated_leverage(ticker, raw_lev, sl_pct=sl_pct)
             leverage = lev_meta["recommended_leverage"]
 
-            margin = round(kelly["dollars_at_risk"] / max(leverage * sl_pct, 0.0001), 2)
+            modeled_loss_pct = sl_pct * kelly.get("loss_payoff_r", 1 + cost_r)
+            margin = math.floor(kelly["dollars_at_risk"] / max(leverage * modeled_loss_pct, 0.0001) * 100)/100
             notional = round(margin * leverage, 2)
-            loss_usd = round(notional * sl_pct, 2)
-            gain_usd = round(notional * tp_pct, 2)
+            loss_usd = round(notional * modeled_loss_pct, 2)
+            gain_usd = round(notional * (tp_pct - cost_pct), 2)
             roi_pct = round((gain_usd / max(margin, 0.01)) * 100, 1)
 
-            ScoreStabilityTracker.record(ticker, direction, effective_score)
+            ScoreStabilityTracker.record(ticker, direction, effective_score,
+                                         observation_id=price_map[ticker]["quote_bar_ts"])
 
             candidates.append({
                 "ticker": ticker, "direction": direction, "entry": entry, "sl": sl,
@@ -1067,12 +925,20 @@ def run_continuous_quant_hunter():
                 "learned_adjustment": signal.get("learned_adjustment"),
                 "model_score": model_score,
                 "model_prob": model_prob,
+                "entry_provenance": {"provider": quote_df.attrs.get("provider"),
+                                     "fetched_at": quote_df.attrs.get("fetched_at"),
+                                     "bar_timestamp": int(quote_df.iloc[-1]["timestamp"]),
+                                     "price": entry, "price_type": "forming_1m_close",
+                                     "ticker": ticker},
+                "model_evidence": score_mod, "model_version": score_mod.get("version"),
+                "funding_rate": funding_rate,
+                "quote_fresh": time.time()-price_map[ticker].get("fetched_at", 0) <= 60,
                 # Label off the score the GATES use. It was computed inside the
                 # confluence engine from the pillar sum (>=85/75/55), so a setup could
                 # dispatch at model 89 while displaying "NO TRADE" from a pillar 40.
                 "calibration": cal,
                 "recommendation_label": (
-                    "\U0001F525 SURE SHOT" if effective_score >= 90 else
+                    "\U0001F525 HIGH CONVICTION" if effective_score >= 90 else
                     "\u26A1 HIGH CONVICTION" if effective_score >= 78 else
                     "\u2705 QUALIFIED" if effective_score >= 60 else
                     "\u274C NO TRADE") if model_avail else signal["recommendation_label"],
@@ -1098,29 +964,23 @@ def run_continuous_quant_hunter():
                 "calendar": calendar, "event_vol": event_vol, "df_5m": f.get("df_5m"),
                 "feature_snapshot": features,
             })
+            # Open at this quote immediately. Waiting for every asset's enrichment
+            # made early candidates enter retrospectively at minutes-old prices.
+            if ShadowTradeLedger.open_shadow_trade(candidates[-1]):
+                shadow_opened += 1
         except Exception as e:
             print(f"[!] Enrichment error {ticker}: {type(e).__name__}: {e}", flush=True)
 
-    scanner_state["phase"] = "shadow-logging"
-    # ---- Shadow-log every qualifying candidate (this is the learning loop) ----
-    shadow_opened = 0
-    for c in candidates:
-        try:
-            if ShadowTradeLedger.open_shadow_trade(c):
-                shadow_opened += 1
-        except Exception as e:
-            print(f"[!] Shadow open error {c['ticker']}: {e}", flush=True)
+    all_candidates = list(candidates)
+    for c in all_candidates:
+        c["dispatch_decision"] = dispatch_eligibility(c, active_positions, ACCOUNT_BALANCE, HARD_SCORE_FLOOR)
 
     # ---- Dispatch decision ---------------------------------------------------
     signals_dispatched = 0
     dispatched_this_scan = []
     now_ts = time.time()
-    dry_hours = (now_ts - last_signal_time) / 3600.0
     active_floor = HARD_SCORE_FLOOR
     relaxed = False
-    if dry_hours >= DRY_SPELL_HOURS:
-        active_floor = RELAXED_SCORE_FLOOR
-        relaxed = True
 
     # Rolling 24h cap so a volatile day cannot turn into a flood.
     cutoff = now_ts - 86400
@@ -1129,9 +989,7 @@ def run_continuous_quant_hunter():
     daily_room = MAX_SIGNALS_PER_DAY - len(signal_timestamps)
 
     if candidates and daily_room > 0:
-        # Rank on measured win rate when we have one, otherwise on raw score.
-        candidates.sort(key=lambda x: (x["calibrated_win_rate"] if x["calibrated_win_rate"] is not None else -1.0,
-                                       x["total_score"]), reverse=True)
+        candidates.sort(key=candidate_rank, reverse=True)
         # CORRELATION PRE-SELECTION.
         # Candidates are already ranked by calibrated win rate then score, but relying on
         # arrival order to pick the survivor is fragile — a higher-ranked candidate can
@@ -1150,12 +1008,11 @@ def run_continuous_quant_hunter():
                 filtered.append(c)
                 continue
             prev = by_group.get(grp)
-            key = (c["calibrated_win_rate"] if c["calibrated_win_rate"] is not None else -1, c["total_score"])
+            key = candidate_rank(c)
             if prev is None or key > prev[0]:
                 by_group[grp] = (key, c)
         filtered.extend(c for _, c in by_group.values())
-        filtered.sort(key=lambda x: (x["calibrated_win_rate"] if x["calibrated_win_rate"] is not None else -1.0,
-                                     x["total_score"]), reverse=True)
+        filtered.sort(key=candidate_rank, reverse=True)
         dropped = len(candidates) - len(filtered)
         if dropped:
             print(f"[corr] {dropped} correlated peers dropped in favour of the strongest in each group",
@@ -1165,46 +1022,21 @@ def run_continuous_quant_hunter():
         for best in candidates:
             if best["total_score"] < active_floor:
                 continue
+            eligibility = dispatch_eligibility(best, monitor.load_positions(), ACCOUNT_BALANCE, active_floor)
+            best["dispatch_decision"] = eligibility
+            if not eligibility["allowed"]:
+                print(f"[gate] {best['ticker']}: {'; '.join(eligibility['reasons'])}", flush=True)
+                continue
             allowed, cd_reason = SignalCooldownEngine.check(best["ticker"], best["direction"])
             if not allowed:
+                best["dispatch_decision"] = {"allowed": False, "reasons": [cd_reason]}
                 continue
 
             # Gate 1: the setup must have HELD its score, not spiked to it.
             stability = ScoreStabilityTracker.evaluate(best["ticker"], best["direction"], active_floor)
             if not stability["stable"]:
+                best["dispatch_decision"] = {"allowed": False, "reasons": [stability["reason"]]}
                 print(f"[gate] {best['ticker']} {best['total_score']:.0f} held back — {stability['reason']}", flush=True)
-                continue
-
-            # Gate 2: once we have evidence, refuse setups the data calls a coin flip.
-            cal = best["calibration"]
-            if (cal["status"] == "CALIBRATED" and best["calibrated_win_rate"] is not None
-                    and best["calibrated_win_rate"] < MIN_CALIBRATED_WIN_RATE):
-                print(f"[gate] {best['ticker']} blocked — calibrated WR "
-                      f"{best['calibrated_win_rate']*100:.0f}% below floor", flush=True)
-                continue
-
-            # Gate 3: scheduled-event blackout. Narrow by design — only the 90 minutes
-            # before and 30 after a directly relevant high-impact event. Everything
-            # further out was already priced in as a graded score penalty.
-            if (best.get("calendar") or {}).get("blackout"):
-                print(f"[gate] {best['ticker']} blocked — blackout: "
-                      f"{best['calendar']['blackout_reason']}", flush=True)
-                continue
-
-            # Gate 3b: never enter an unresolved event spike.
-            if (best.get("event_vol") or {}).get("action") == "NO_ENTRY":
-                print(f"[gate] {best['ticker']} blocked — {best['event_vol']['reason']}", flush=True)
-                continue
-
-            # Gate 3c: structure must pay for the risk taken.
-            if best["rr"] < MIN_REWARD_RISK:
-                print(f"[gate] {best['ticker']} blocked — R:R {best['rr']:.2f} "
-                      f"below {MIN_REWARD_RISK} (no room to next pool)", flush=True)
-                continue
-
-            # Gate 4: do not enter directly in front of an unswept stop pool.
-            if best["hunt_risk"].get("hunt_risk_score", 0) >= 45:
-                print(f"[gate] {best['ticker']} blocked — {best['hunt_risk']['verdict']}", flush=True)
                 continue
 
             # Gate 5: execution timing on the 5m.
@@ -1218,31 +1050,35 @@ def run_continuous_quant_hunter():
                     _df5 = None
             timing_ok, timing_msg = entry_timing_ok(_df5, best["direction"])
             if not timing_ok:
+                best["dispatch_decision"] = {"allowed": False, "reasons": [timing_msg]}
                 print(f"[gate] {best['ticker']} held — {timing_msg}", flush=True)
-                continue
-
-            # Gate 5b: Kelly veto — never fund a negative edge.
-            if best.get("kelly_vetoed"):
-                print(f"[gate] {best['ticker']} vetoed by Kelly "
-                      f"(edge {best.get('kelly_full')}) — tracked as shadow only", flush=True)
                 continue
 
             # Gate 6: correlation. Three correlated longs in one scan is one bet at
             # triple size, not three signals.
             ok_corr, corr_why = CorrelationDefenseEngine.check_pending(
-                best["ticker"], best["direction"], dispatched_this_scan)
+                best["ticker"], best["direction"], monitor.load_positions() + dispatched_this_scan)
             if not ok_corr:
+                best["dispatch_decision"] = {"allowed": False, "reasons": [corr_why]}
                 print(f"[gate] {best['ticker']} blocked — {corr_why}", flush=True)
                 continue
 
-            dispatch_signal(best, stability, reg_warning, relaxed)
+            if not dispatch_signal(best, stability, reg_warning, relaxed):
+                best["dispatch_decision"] = {"allowed": False, "reasons": ["quote moved or signal delivery failed"]}
+                continue
+            best["signal_sent"] = True
             dispatched_this_scan.append({"ticker": best["ticker"], "direction": best["direction"]})
-            DispatchLedger.record_dispatch(best)
             signals_dispatched += 1
             last_signal_time = time.time()
             signal_timestamps.append(last_signal_time)
             if signals_dispatched >= min(MAX_SIGNALS_PER_SCAN, daily_room):
                 break
+
+    model = CalibratedScoreModel.build()
+    status = build_status(model, all_candidates, signals_dispatched, monitor.load_positions())
+    save_status(status)
+    scanner_state.update(decision=status["decision"], model_status=status["model_status"],
+                         decision_reason=status["reason"], verified_outcomes=status["verified_outcomes"])
 
     # ---- Session-aware digest ------------------------------------------------
     interval, label, ist_str = digest_interval_seconds()
@@ -1256,7 +1092,6 @@ def run_continuous_quant_hunter():
 
     ScoreStabilityTracker.prune()
 
-    cal_model = WinRateCalibrator.build_model()
     LAST_SCAN_EPOCH[0] = time.time()
     scanner_state.update({
         "last_scan_time": time.strftime('%Y-%m-%d %H:%M:%S'),
@@ -1265,7 +1100,7 @@ def run_continuous_quant_hunter():
         "status": "RUNNING",
         "scan_duration_s": round(time.time() - scan_start, 1),
         "shadow_open": len(ShadowTradeLedger.load_open()),
-        "calibration": f"{cal_model['status']} n={cal_model['total_samples']}",
+        "calibration": f"{status['model_status']} n={status['verified_outcomes']}",
     })
     print(f"[{time.strftime('%H:%M:%S')}] Scan #{scanner_state['total_scans']} | "
           f"{len(frames)}/{len(universe)} fed | {len(candidates)} candidates | "
@@ -1278,68 +1113,32 @@ def run_continuous_quant_hunter():
 # ============================================================
 def dispatch_signal(best: dict, stability: dict, reg_warning: str, relaxed: bool):
     ticker = best["ticker"]
+    fresh, real = BitunixWeexLiveFeed.get_exchange_ohlcv(ticker, 0, "1m", limit=3,
+                            provider=(best.get("entry_provenance") or {}).get("provider"))
+    if fresh is None or not real or abs(float(fresh.iloc[-1]["close"])-best["entry"]) > abs(best["entry"]-best["sl"])*.1:
+        return False
     direction = best["direction"]
-    dir_dot = "🟢" if direction == "LONG" else "🔴"
-    action = "LONG (BUY)" if direction == "LONG" else "SHORT (SELL)"
-    cal = best["calibration"]
-    pb = best["pillar_breakdown"]
-
-    tp_lines = "\n".join(
-        f"🎯 **TP{i}:** `{format_price_dynamic(tp)}` (+{abs(tp - best['entry']) / best['entry'] * 100:.2f}%)"
-        for i, tp in enumerate(best["tp_ladder"], 1))
-
-    reasons = "\n".join(f"• {r}" for r in best["factors_passed"][:6])
-    warnings = "\n".join(f"• {r}" for r in best["factors_failed"][:3])
-
-    if cal["status"] == "CALIBRATED":
-        wr_line = (f"📊 **WIN RATE:** `{best['calibrated_win_rate'] * 100:.0f}%` "
-                   f"_(measured, {cal['confidence'].lower()} confidence, n={cal['samples']})_")
-    else:
-        wr_line = (f"📊 **WIN RATE:** `—` _(⚠️ UNMEASURED — engine needs "
-                   f"{cal.get('samples_needed', 0)} more resolved shadow trades before it can "
-                   f"quote a win rate it can defend)_")
-
-    relaxed_line = ("\n⚠️ _Relaxed threshold engaged after "
-                    f"{DRY_SPELL_HOURS:.0f}h without a signal — conviction below the usual "
-                    f"{HARD_SCORE_FLOOR:.0f} floor._\n" if relaxed else "")
-    macro_line = ""      # regulatory banner archived; reg_warning is always empty now
-    stop_line = "\n".join(f"• {r}" for r in best["stop_rationale"][:2])
-    traj = ScoreStabilityTracker.trajectory(ticker, direction)[-6:]
-
-    msg = f"""{dir_dot} **{best['recommendation_label']} — {action}: {ticker}**
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🏆 **SCORE:** `{best['total_score']:.0f}/100`  |  Regime: `{best['market_regime']}`
-{wr_line}
-📈 **Score path:** `{' → '.join(str(s) for s in traj)}` _(held {stability['consecutive']}/{ScoreStabilityTracker.MIN_CONSECUTIVE} scans, σ={stability['stdev']}, slope {stability['slope']:+.1f})_
-
-**PILLARS**
-`Trend      {pb['trend']['score']:5.1f}/20`  EMA: {best['ema_bias']}
-`HTF        {pb['htf']['score']:5.1f}/20`  Bias: {best['htf_bias']}
-`Order Flow {pb['orderflow']['score']:5.1f}/25`
-`Structure  {pb['structure']['score']:5.1f}/20`  BOS: {best['bos_status']}
-`Defense    {pb['defense']['score']:5.1f}/15`  Hunt: {best['hunt_risk'].get('verdict', 'n/a')}
-
-📍 **ENTRY:** `{format_price_dynamic(best['entry'])}`
-{tp_lines}
-🛡️ **STOP LOSS:** `{format_price_dynamic(best['sl'])}` (-{best['sl_pct'] * 100:.2f}%)
-{stop_line}
-
-💰 **MARGIN:** `${best['final_margin']:,.2f} USDT` (`{best['chosen_leverage']}x Isolated`)
-📈 **TARGET (TP1):** `+${best['exact_gain_usd']:,.2f}` (+{best['roi_gain_pct']}% ROI)  |  R:R `{best['rr']:.2f}`
-📉 **RISK:** `-${best['exact_loss_usd']:,.2f}`
-⏱️ **EST. DURATION:** `{best['estimated_duration']}`
-🏛️ **EXCHANGE:** `Bitunix / Weex Futures`
-{macro_line}{relaxed_line}
-📋 **WHY:**
-{reasons}
-{"⚠️ **RISKS:**" + chr(10) + warnings if warnings else ""}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-_Reply **positioned** to track this trade_"""
+    msg = (f"SIGNAL | {ticker} {direction}\n"
+           f"Entry: {format_price_dynamic(best['entry'])}\n"
+           f"Stop: {format_price_dynamic(best['sl'])}\n"
+           f"Targets: {', '.join(format_price_dynamic(t) for t in best['tp_ladder'])}\n\n"
+           f"Model win estimate: {(best.get('model_prob') or 0)*100:.0f}% "
+           f"(sizing bound: {best['calibrated_win_rate']*100:.0f}%).\n"
+           f"Estimated average net result at this size: ${best['kelly']['expected_net_R'] * best['actual_notional'] * best['sl_pct']:+.2f} per trade.\n"
+           f"Half-Kelly risk including estimated costs: ${best['exact_loss_usd']:.2f} "
+           f"({best['kelly']['risk_pct']:.2f}% of configured capital).\n"
+           f"Margin: ${best['final_margin']:.2f} at {best['chosen_leverage']}x isolated.\n\n"
+           "Exit rule: after a target is reached, trail to that target from the next minute. "
+           "Close at the final target or stop. Gaps can exceed the planned loss.\n"
+           "Reply positioned if entered. Prices and P&L are estimates, not exchange fills.")
 
     msg_id = telegram.send_alert(msg)
     if not msg_id:
-        return
+        return False
 
+    dispatch_id = DispatchLedger.record_dispatch(best)
+    if not dispatch_id:
+        scanner_state["last_error"] = "Signal delivered but dispatch audit write failed"
     dispatched_message_ids[msg_id] = ticker
     SignalCooldownEngine.record_signal_sent(ticker, direction)
     scanner_state["last_signal"] = f"{ticker} {direction} @ {best['entry']} ({best['total_score']:.0f})"
@@ -1349,22 +1148,27 @@ _Reply **positioned** to track this trade_"""
     positions = [p for p in monitor.load_positions() if p.get("ticker") != ticker]
     positions.append({
         "ticker": ticker, "direction": direction, "entry_price": best["entry"],
+        "dispatch_id": dispatch_id,
         "stop_loss": best["sl"], "take_profit": best["tp"], "tp_ladder": best["tp_ladder"],
         "win_rate": best["calibrated_win_rate"], "total_score": best["total_score"],
         "margin": best["final_margin"], "leverage": best["chosen_leverage"],
         "notional": best["actual_notional"],
+        "planned_risk_usd": best["exact_loss_usd"],
         "factor_scores": {f: 1.0 for f in best["factors_passed"]},
         # Needed by TradeDecayEngine to detect volatility collapse and stalled progress.
         "atr_at_entry": best["atr"], "market_regime": best["market_regime"],
         "feature_snapshot": best["feature_snapshot"],
         "user_positioned": False, "epoch_time": time.time(),
+        "config_version": LOGIC_VERSION, "model_version": best.get("model_version"),
+        "funding_rate": best.get("funding_rate", 0),
+        "entry_provenance": best.get("entry_provenance"),
         "time": time.strftime('%Y-%m-%d %H:%M:%S'),
     })
     monitor.save_positions(positions)
 
     # FIX: v38 built this record and dropped it — the file was never written.
-    os.makedirs("portfolio", exist_ok=True)
-    path = "portfolio/dispatched_signals.json"
+    os.makedirs(os.path.join(os.path.dirname(__file__), "portfolio"), exist_ok=True)
+    path = os.path.join(os.path.dirname(__file__), "portfolio/dispatched_signals.json")
     log = []
     if os.path.exists(path):
         try:
@@ -1386,100 +1190,16 @@ _Reply **positioned** to track this trade_"""
     except Exception as e:
         print(f"[!] dispatched_signals write failed: {e}", flush=True)
 
+    return True
+
 
 # ============================================================
 # HUNTING DIGEST
 # ============================================================
 def send_hunting_digest(candidates, prelim, session_name, label, ist_str,
                         reg_data, active_floor, relaxed):
-    """
-    Sent on schedule regardless of whether a signal fired, per the user's request:
-    hourly between 11:00 and 03:00 IST, every 3 hours otherwise.
-    """
-    # Show a full top 20: the enriched candidates first, then backfill from the
-    # unenriched preliminary scan so the user always sees 20 rows.
-    pool = list(candidates)
-    seen = {c["ticker"] for c in pool}
-    for t, _, s in prelim:
-        if len(pool) >= 20:
-            break
-        if t in seen:
-            continue
-        pool.append({"ticker": t, "direction": s["direction"], "total_score": s["total_score"],
-                     "calibrated_win_rate": None, "entry": s.get("entry_price", 0)})
-        seen.add(t)
-
-    def _stab_rank(c):
-        st = ScoreStabilityTracker.evaluate(c["ticker"], c["direction"], active_floor)
-        # stable > forming > noisy/fading; score breaks ties inside each tier.
-        tier = 0 if st["stable"] else (1 if st["samples"] < ScoreStabilityTracker.MIN_CONSECUTIVE else 2)
-        return (tier, -c["total_score"])
-    pool = sorted(pool, key=_stab_rank)[:20]
-
-    lines = []
-    for i, c in enumerate(pool, 1):
-        emoji = "🟢" if c["direction"] == "LONG" else "🔴"
-        wr = c.get("calibrated_win_rate")
-        wr_s = f"WR `{wr * 100:.0f}%`" if wr is not None else "WR `—`"
-        # STABILITY BADGE. The digest used to print raw ungated scores, so the same
-        # asset could read LONG 68 one hour and SHORT 63 the next — the exact whiplash
-        # that traps you. These are the scores the engine itself would REFUSE to act
-        # on unless badged stable, and now you can see which is which.
-        st = ScoreStabilityTracker.evaluate(c["ticker"], c["direction"], active_floor)
-        if st["stable"]:
-            badge = f"✅ held {st['consecutive']}"
-        elif st["samples"] < ScoreStabilityTracker.MIN_CONSECUTIVE:
-            badge = f"🆕 new {st['samples']}/{ScoreStabilityTracker.MIN_CONSECUTIVE}"
-        elif st["stdev"] > ScoreStabilityTracker.MAX_STDEV:
-            badge = f"⚠️ σ{st['stdev']:.0f} unstable"
-        elif st["slope"] < ScoreStabilityTracker.MAX_DECAY_SLOPE:
-            badge = f"📉 fading {st['slope']:+.1f}"
-        else:
-            badge = f"○ {st['consecutive']}/{ScoreStabilityTracker.MIN_CONSECUTIVE}"
-        lines.append(f"`{i:2d}.` {emoji} **{c['ticker']}** `{c['total_score']:.0f}` | {wr_s} | "
-                     f"`{format_price_dynamic(c.get('entry', 0))}` | {badge}")
-
-    shadow = ShadowTradeLedger.summary()
-    eqc = ShadowTradeLedger.equity_curve(ACCOUNT_BALANCE)
-    cal = WinRateCalibrator.build_model()
-
-    if cal["status"] == "CALIBRATED":
-        cal_line = (f"✅ CALIBRATED on {cal['total_samples']} resolved shadow trades — "
-                    f"global {cal['global_win_rate'] * 100:.1f}% (Wilson LB {cal['global_wilson'] * 100:.1f}%)")
-    else:
-        need = WinRateCalibrator.MIN_SAMPLES_GLOBAL - cal["total_samples"]
-        cal_line = (f"⏳ LEARNING — {cal['total_samples']}/{WinRateCalibrator.MIN_SAMPLES_GLOBAL} "
-                    f"resolved shadow trades ({need} more before win rates are trustworthy)")
-
-    sl_note = ""
-    if (cal.get("sl_stats") or {}).get("available"):
-        s = cal["sl_stats"]
-        sl_note = (f"\n🛡️ **Stop research:** {s['sl_then_tp_count']} trades hit stop before target "
-                   f"({s['sl_then_tp_rate'] * 100:.0f}%). Winners take up to {s['winner_mae_p85_pct']:.2f}% heat; "
-                   f"recommended SL multiplier `{s['recommended_sl_multiplier']}x`.")
-
-    # Calendar moved out of the digest — it is reference data that rarely changes
-    # between hourly messages, so repeating six identical lines every hour was noise.
-    # Available on demand via the `calendar` command instead.
-    msg = f"""🛰️ **DEN ENGINE HUNTING DIGEST** — {ist_str} ({label} cadence)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 **SESSION:** `{session_name}` | Dispatch floor: `{active_floor:.0f}/100`{" ⚠️ relaxed" if relaxed else ""}
-
-🧠 **CALIBRATION:** {cal_line}
-👁️ **SHADOW BOOK:** `{shadow['open']}` open | `{shadow['total']}` resolved | accuracy `{shadow['accuracy_pct']}%`
-`TP1 {shadow['tp1']}` `TP2 {shadow['tp2']}` `TP3 {shadow['tp3']}` `TP4 {shadow['tp4']}` \
-`SL {shadow['sl_hit']}` `SL→TP {shadow['sl_then_tp']}` `TO {shadow['timeouts']}`
-💵 Equity `${eqc['final_equity']:,.0f}` from `${eqc['starting_capital']:,.0f}` | Net `${eqc['net_profit']:+,.2f}` \
-(`{eqc['total_R']:+.1f}R`, DD `{eqc['max_drawdown_pct']:.1f}%`)\
-{f" | PF `{shadow['profit_factor']}`" if shadow['profit_factor'] else ""}{sl_note}
-
-🏆 **TOP {len(pool)} LIVE CANDIDATES:**
-{chr(10).join(lines) if lines else "_No qualifying candidates this cycle._"}
-
-_✅ stable · 🆕 forming · ⚠️ noisy · 📉 fading — only ✅ can be dispatched._
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
-    telegram.send_alert(msg)
-    print(f"[✓] Digest sent ({label} cadence, {ist_str})", flush=True)
+    if telegram.send_alert(render_status()):
+        print(f"[status] delivered at {ist_str}", flush=True)
 
 
 # ============================================================
@@ -1498,34 +1218,13 @@ def start_background_scanner_loop():
     # as enough of them exist.
     # Audit the restored ledger BEFORE anything reads it. A corrupted pull would
     # otherwise poison calibration for the whole session.
-    # VERSION SELF-HEAL. If resolution logic changed since these records were written,
-    # replay them against real candles under the current logic before anything reads
-    # them. Without this a logic change silently leaves two incompatible measurements
-    # averaged together — which is exactly how 75.7% and 30.3% became one number.
-    try:
-        vr = ShadowTradeLedger.version_report()
-        if vr["needs_replay"]:
-            print(f"[ledger] {vr['stale_records']} records on an older logic version "
-                  f"(current {vr['current_version']}) — replaying...", flush=True)
-            from audit.ledger_recovery import LedgerRecovery
-            res = LedgerRecovery.run()
-            print(f"[ledger] replayed {res['recovered']}, "
-                  f"{len(res.get('outcome_changes') or {})} outcome types changed, "
-                  f"accuracy now {res['new_accuracy_pct']}%", flush=True)
-    except Exception as e:
-        print(f"[ledger] version replay failed: {e}", flush=True)
-    try:
-        ShadowTradeLedger.purge_stale_open()
-        boot_audit = ShadowTradeLedger.audit_integrity(repair=True)
-        print(f"[ledger] boot audit: {boot_audit['unique_trades']} unique of "
-              f"{boot_audit['total_records']} records, {boot_audit['duplicates']} purged", flush=True)
-    except Exception as e:
-        print(f"[ledger] boot audit failed: {e}", flush=True)
-    try:
-        if not ShadowTradeLedger.load_closed():
-            WinRateCalibrator.load_snapshot()
-    except Exception as e:
-        print(f"[calib] snapshot seed skipped: {e}", flush=True)
+    vr = ShadowTradeLedger.version_report()
+    if vr["needs_replay"]:
+        print(f"[ledger] {vr['stale_records']} legacy outcomes quarantined; "
+              "verified replay is required before model training", flush=True)
+    # Historical and open records remain intact; no destructive automatic migration.
+    signal_timestamps[:] = sorted(float(r["dispatched_epoch"]) for r in DispatchLedger.load()
+                                 if float(r.get("dispatched_epoch") or 0) > time.time()-86400)
     while True:
         try:
             scanner_state["status"] = "SCANNING"

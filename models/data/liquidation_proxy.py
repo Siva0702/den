@@ -2,25 +2,10 @@
 
 
 class LiquidationProxy:
-    """
-    Liquidation cascade detection without a paid feed.
+    """OI/price unwind proxy. Voluntary exits can produce the same pattern.
 
-    Coinglass charges for aggregated liquidation prints. It is not needed, because a
-    liquidation is a FORCED CLOSE and a forced close necessarily destroys open interest.
-    So the cascade is already visible in data the engine fetches anyway:
-
-        OI collapses + price falls   ->  LONGS were liquidated
-        OI collapses + price rises   ->  SHORTS were liquidated (squeeze)
-        OI rises     + price moves   ->  new positions opening, NOT a liquidation
-
-    That last row is the one that matters. Price moving hard on RISING OI is real
-    conviction and tends to continue. The identical move on COLLAPSING OI is forced
-    supply, which exhausts the moment the liquidation queue clears — which is the
-    "positive news, price makes new lows" case: the move is unwinding, not informed.
-
-    Nothing here is asserted into the score. It is emitted as features so the calibrated
-    model can measure whether these states actually predict anything, exactly like the
-    weekend and range features. If they carry no signal they will earn zero weight.
+    This is not a liquidation print feed or proof of manipulation. Its predictive
+    value must be learned from prospective outcomes with matched observation windows.
     """
 
     OI_COLLAPSE = -1.5          # % change over the OI window that counts as forced
@@ -51,6 +36,9 @@ class LiquidationProxy:
         except (TypeError, ValueError):
             return out
 
+        import math
+        if price_change_pct is None or not math.isfinite(d_oi) or not math.isfinite(move):
+            return out
         out["available"] = True
         out["oi_change_pct"] = round(d_oi, 3)
         out["price_change_pct"] = round(move, 3)
@@ -69,14 +57,14 @@ class LiquidationProxy:
             out["liq_intensity"] = round(intensity, 3)
             out["notes"].append(
                 f"OI {d_oi:+.2f}% on a {move:+.2f}% move — {out['liq_side'].lower()} "
-                f"being forced out; move is unwinding, not accumulation")
+                f"unwind proxy; voluntary exits are also possible")
         elif d_oi >= cls.OI_SURGE:
             out["liq_state"] = "POSITION_BUILDING"
             out["liq_side"] = "LONGS" if move > 0 else "SHORTS"
             out["liq_intensity"] = round(intensity, 3)
             out["notes"].append(
                 f"OI {d_oi:+.2f}% on a {move:+.2f}% move — new {out['liq_side'].lower()} "
-                f"opening into it; conviction, not forced flow")
+                f"position-building proxy; continuation is unverified")
         else:
             out["liq_state"] = "NEUTRAL"
 

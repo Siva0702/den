@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from indicators.execution import FEATURE_VERSION
 
 from indicators.institutional_smc import InstitutionalSMCEngine
 from indicators.orderflow_imbalance import InstitutionalOrderFlowEngine
@@ -58,7 +59,7 @@ class SureShotConfluenceEngine:
         loss_val = loss.iloc[-1]
         gain_val = gain.iloc[-1]
         rs = gain_val / (loss_val if loss_val > 1e-12 else 1e-12)
-        rsi = 100 - (100 / (1 + rs))
+        rsi = 50.0 if gain_val <= 1e-12 and loss_val <= 1e-12 else 100 - (100 / (1 + rs))
         return rsi, gain, loss
 
     @staticmethod
@@ -97,7 +98,7 @@ class SureShotConfluenceEngine:
         ema9 = close.ewm(span=9, adjust=False).mean()
         ema21 = close.ewm(span=21, adjust=False).mean()
         ema50 = close.ewm(span=50, adjust=False).mean()
-        ema200 = close.ewm(span=200, adjust=False).mean() if len(df) >= 100 else ema50
+        ema200 = close.ewm(span=200, adjust=False).mean() if len(df) >= 200 else ema50
 
         c = float(close.iloc[-1])
         e9, e21, e50, e200 = (float(x.iloc[-1]) for x in (ema9, ema21, ema50, ema200))
@@ -291,8 +292,8 @@ class SureShotConfluenceEngine:
         high = float(df['high'].iloc[-1])
         low = float(df['low'].iloc[-1])
 
-        last_swing_high = max((p for _, p in highs), default=None)
-        last_swing_low = min((p for _, p in lows), default=None)
+        last_swing_high = highs[-1][1] if highs else None
+        last_swing_low = lows[-1][1] if lows else None
 
         if last_swing_high is not None and close > last_swing_high:
             return {"bos": "BULLISH", "level": last_swing_high,
@@ -478,7 +479,7 @@ class SureShotConfluenceEngine:
     def evaluate_setup(cls, ohlcv_15m, ohlcv_1h=None, ohlcv_4h=None, ohlcv_1d=None,
                        btc_df=None, ticker="", efficiency_history=None,
                        derivatives=None, news=None, regulatory_multiplier=1.0,
-                       calendar=None, event_vol=None) -> dict:
+                       calendar=None, event_vol=None, learned_adjustments=True) -> dict:
 
         if ohlcv_15m is None or len(ohlcv_15m) < 100:
             return {"recommendation_label": "❌ NO TRADE", "reasoning": "Insufficient 15m data",
@@ -498,7 +499,7 @@ class SureShotConfluenceEngine:
         rsi, _, _ = cls._calculate_rsi(df_calc)
         _, _, macd_hist = cls._calculate_macd(df_calc)
         atr_100 = atr_series.iloc[-100:] if len(atr_series) >= 100 else atr_series
-        atr_percentile = float((atr_100 < curr_atr).mean())
+        atr_percentile = float((atr_100.dropna() < curr_atr).mean())
 
         liquidity = LiquidityMapEngine.map_liquidity(df_calc, curr_atr)
         hunt_long = LiquidityMapEngine.hunt_risk(df_calc, "LONG", curr_atr, liquidity)
@@ -528,24 +529,9 @@ class SureShotConfluenceEngine:
         tilt_short = 0.0
         tilt_notes = []
 
-        if news and news.get("available"):
-            # news_multiplier lives in [0.80, 1.20]; map to +/-6 points.
-            news_pts = (news["news_multiplier"] - 1.0) * 30.0
-            # News is a QUALITY signal, not a directional one. Measured over 1903 trades:
-            #
-            #   BULLISH news + LONG    n=270  60.4%  +0.518R
-            #   BULLISH news + SHORT   n=398  62.8%  +0.521R   <- best cell
-            #   BEARISH news + LONG    n=415  50.6%  +0.115R
-            #   BEARISH news + SHORT   n=594  53.0%  +0.258R
-            #
-            # Bullish news makes BOTH sides work; bearish news degrades both. It reflects
-            # attention and liquidity letting a move complete, not which way it goes.
-            # The old code did `tilt_short -= news_pts`, penalising the single
-            # best-performing cell in the whole book. Both sides now move together.
-            tilt_long += news_pts
-            tilt_short += news_pts
-            if abs(news_pts) > 0.5:
-                tilt_notes.append(f"News {news['news_bias'].lower()} ({news_pts:+.1f} pts)")
+        # The old same-sign news bonus was fitted to defective v4 outcomes.
+        # Preserve headline context for the calibrated model instead of hardcoding
+        # that bullish headlines improve both long and short setups.
 
         # Post-event playbook. A confirmed exhaustion fade is a high-quality, short-lived
         # edge, so it adds score to the side that fades the spike and subtracts from the
@@ -576,12 +562,14 @@ class SureShotConfluenceEngine:
         btc_corr = 0.0
         if btc_df is not None and len(btc_df) >= 20 and ticker != "BTC/USDT":
             try:
-                btc_ret = btc_df['close'].pct_change().fillna(0)
-                ast_ret = df['close'].pct_change().fillna(0)
-                n = min(len(btc_ret), len(ast_ret))
-                btc_corr = float(ast_ret.iloc[-n:].corr(btc_ret.iloc[-n:]))
+                paired = df_calc[["timestamp", "close"]].merge(
+                    btc_df.iloc[:-1][["timestamp", "close"]], on="timestamp", suffixes=("_asset", "_btc"))
+                returns = paired[["close_asset", "close_btc"]].pct_change().dropna()
+                btc_corr = float(returns.close_asset.corr(returns.close_btc)) if len(returns) >= 20 else 0.0
+                if not np.isfinite(btc_corr):
+                    btc_corr = 0.0
                 if btc_corr > 0.7:
-                    btc_trend = cls._calc_trend(btc_df)
+                    btc_trend = cls._calc_trend(btc_df.iloc[:-1])
                     if btc_trend > 0:
                         tilt_long += 3.0
                         tilt_short -= 3.0
@@ -592,15 +580,7 @@ class SureShotConfluenceEngine:
             except Exception:
                 btc_corr = 0.0
 
-        # Per-ticker realised history from resolved trades.
-        if efficiency_history and 'per_ticker' in (efficiency_history or {}):
-            tk = efficiency_history['per_ticker'].get(ticker)
-            if tk and (tk.get("wins", 0) + tk.get("losses", 0)) >= 4:
-                w, l = tk["wins"], tk["losses"]
-                edge = (w - l) / (w + l)
-                tilt_long += edge * 4.0
-                tilt_short += edge * 4.0
-                tilt_notes.append(f"Realised history on {ticker}: {w}W/{l}L ({edge * 4.0:+.1f} pts)")
+        # Legacy per-ticker efficiency mixes execution versions and is not a predictor.
 
         # LEARNED REGIME/STRUCTURE ADJUSTMENT.
         # Measured from resolved outcomes, never hand-set. This is what corrects the
@@ -611,8 +591,8 @@ class SureShotConfluenceEngine:
         try:
             from audit.regime_performance import RegimePerformance
             bos_state = p_struct["bos"]["bos"]
-            adj_long = RegimePerformance.adjustment("LONG", bos_state, market_regime)
-            adj_short = RegimePerformance.adjustment("SHORT", bos_state, market_regime)
+            adj_long = RegimePerformance.adjustment("LONG", bos_state, market_regime) if learned_adjustments else {"available": False}
+            adj_short = RegimePerformance.adjustment("SHORT", bos_state, market_regime) if learned_adjustments else {"available": False}
             if adj_long.get("available"):
                 learned_long = adj_long["total"]
                 learned_short = adj_short["total"]
@@ -659,14 +639,16 @@ class SureShotConfluenceEngine:
         factors_failed.extend(p_def.get("warnings", []))
         factors_passed.extend(tilt_notes)
 
+        direction_alignment = sum(1 for v in p_htf["trends"].values()
+                                  if (v > 0 and direction == "LONG") or (v < 0 and direction == "SHORT"))
         is_sure_shot = (
             total_score >= 85
-            and p_htf["aligned_count"] >= 3
+            and direction_alignment >= 3
             and not p_def["anti_manipulation"].get("is_manipulated")
             and hunt.get("hunt_risk_score", 100) < 45
         )
         if is_sure_shot:
-            rec_label = "🔥 SURE SHOT"
+            rec_label = "🔥 HIGH CONVICTION"
         elif total_score >= 75:
             rec_label = "⚡ HIGH CONVICTION"
         elif total_score >= 55:
@@ -678,6 +660,7 @@ class SureShotConfluenceEngine:
 
         # Feature snapshot — this is what the shadow ledger learns from.
         feature_snapshot = {
+            "feature_version": FEATURE_VERSION,
             "pillar_trend": p_trend[side] if direction != "NONE" else 0,
             "pillar_htf": p_htf[side] if direction != "NONE" else 0,
             "pillar_orderflow": p_flow[side] if direction != "NONE" else 0,
@@ -745,7 +728,7 @@ class SureShotConfluenceEngine:
             "market_regime": market_regime,
             "regime_full": regime_full,
             "regime_detail": regime_read,
-            "timeframe_alignment": p_htf["aligned_count"],
+            "timeframe_alignment": direction_alignment,
             "trend_strength_pct": round((p_htf[side] / p_htf["budget"]) * 100 if direction != "NONE" else 0, 0),
             "liquidity": liquidity,
             "hunt_risk": hunt,

@@ -28,19 +28,16 @@ class CorrelationDefenseEngine:
         diversification. This checks the new candidate against both open positions and
         the signals already queued this cycle.
         """
-        group = None
-        for g, members in cls.CORRELATED_GROUPS.items():
-            if new_ticker in members:
-                group = g
-                break
-        if not group:
-            return True, "uncorrelated"
+        groups = {g for g, members in cls.CORRELATED_GROUPS.items() if new_ticker in members}
         for p in pending:
+            if p.get("ticker") == new_ticker:
+                return False, f"already exposed to {new_ticker}"
             if p.get("direction") != direction:
-                continue          # opposite directions are a hedge, not a doubling
-            if p.get("ticker") in cls.CORRELATED_GROUPS[group]:
-                return False, f"correlated with {p['ticker']} in {group} (same direction)"
-        return True, f"clear in {group}"
+                continue
+            overlap = [g for g in groups if p.get("ticker") in cls.CORRELATED_GROUPS[g]]
+            if overlap:
+                return False, f"correlated with {p['ticker']} in {overlap[0]} (same direction)"
+        return True, "no configured correlation overlap"
 
     @classmethod
     def check_correlation_overlap(cls, new_ticker: str) -> bool:
@@ -63,3 +60,9 @@ class CorrelationDefenseEngine:
             pass
 
         return False
+
+# Broad exposures overlap sector groups; the guard checks every matching group.
+CorrelationDefenseEngine.CORRELATED_GROUPS["US_EQUITY_BETA"] = list(dict.fromkeys(
+    ["SPY/USDT", "QQQ/USDT", "IWM/USDT"] +
+    CorrelationDefenseEngine.CORRELATED_GROUPS["US_SEMIS"] +
+    CorrelationDefenseEngine.CORRELATED_GROUPS["BIG_TECH"]))

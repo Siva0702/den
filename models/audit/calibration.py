@@ -163,7 +163,7 @@ class WinRateCalibrator:
         # blended 4 live records into 6074 backtest records and quoted the result as a
         # "measured" win rate, which passed off a technicals-only backtest as if it
         # carried live derivatives/news/calendar context.
-        closed = live + backtest
+        closed = live  # legacy 15m backtests cannot calibrate current 1m execution
         total = len(closed)
         wins = sum(1 for t in closed if t.get("is_win"))
         global_rate = (wins / total) if total else 0.0
@@ -189,7 +189,7 @@ class WinRateCalibrator:
                              "win_rate": round(sum(1 for t in backtest if t.get("is_win")) / len(backtest), 4) if backtest else None,
                              "context": "technicals only — no historical derivatives/news"},
             },
-            "primary_source": "live" if len(live) >= cls.MIN_SAMPLES_GLOBAL else "backtest",
+            "primary_source": "live",
         }
 
         if total == 0:
@@ -222,12 +222,12 @@ class WinRateCalibrator:
         # which is noise, not a real inversion, and would have the engine preferring
         # weaker setups. Isotonic regression enforces the ordering we actually believe
         # while staying as close as possible to the observed data.
-        iso = cls._isotonic(shrunk_rates, weights)
+        iso = list(shrunk_rates)
         # Smooth the Wilson sequence itself. Taking min(wilson, isotonic) would undo the
         # ordering that was just imposed, because the per-bin Wilson bounds are not
         # themselves monotonic. Running PAVA over the bounds keeps BOTH properties:
         # sample-size honesty and "higher score never scores worse".
-        iso_wilson = cls._isotonic(wilson_raw, weights)
+        iso_wilson = list(wilson_raw)
 
         for idx, (k, b) in enumerate(ordered):
             n, w = b["n"], b["w"]

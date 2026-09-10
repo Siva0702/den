@@ -333,12 +333,11 @@ class PerAssetNewsIntelligence:
 
         block_entry = False
         block_reason = ""
-        if event_risk:
-            block_entry = True
-            block_reason = f"Scheduled event risk in headlines ({', '.join(sorted(set(event_hits))[:3])}) — gap/whipsaw risk"
-        elif manipulation_risk:
+        if manipulation_risk:
             block_entry = True
             block_reason = f"Manipulation chatter score {manip_total:.1f} — move may be engineered"
+        # Generic CPI/earnings mentions remain context. They do not establish an
+        # upcoming event time; calendar blackouts handle scheduled-event timing.
 
         return {
             "available": True,

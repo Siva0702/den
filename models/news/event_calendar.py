@@ -308,11 +308,13 @@ class ScheduledEventCalendar:
                 with open(CALENDAR_FILE, "r") as f:
                     data = json.load(f)
                     with cls._lock:
-                        cls._memory = {"fetched_at": time.time(), "events": data.get("events", [])}
+                        stamp = cls._parse_iso(data.get("generated_at", ""))
+                        cls._memory = {"fetched_at": stamp.timestamp() if stamp and not data.get("degraded_sources") else 0,
+                                       "events": data.get("events", [])}
                     return cls._memory["events"]
             except Exception:
                 pass
-        return cls.refresh()
+        return []  # the background refresher owns network calls
 
     # ------------------------------------------------------------------
     @classmethod
@@ -417,6 +419,7 @@ class ScheduledEventCalendar:
         penalty = round((risk / 100.0) * 12.0, 2)
 
         return {
+            "available": time.time()-cls._memory.get("fetched_at", 0) <= cls.REFRESH_SECONDS*2,
             "event_risk_score": round(risk, 1),
             "score_penalty": penalty,
             "blackout": blackout,

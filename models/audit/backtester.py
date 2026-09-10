@@ -16,29 +16,11 @@ from audit.shadow_ledger import ShadowTradeLedger
 BACKTEST_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "audit/backtest_closed.json")
 
 class WalkForwardBacktester:
-    """
-    Den Engine v39.2 Walk-Forward Backtester.
+    """Technical-only historical research at coarse 15m resolution.
 
-    The calibration layer needs resolved outcomes before it can quote a win rate, and
-    collecting those live takes weeks. Exchanges will hand over 1500 bars of 15m history
-    for free — about 15 days — so instead of waiting, we replay it.
-
-    For each asset the engine walks forward bar by bar. At each step it sees ONLY the
-    bars up to that point, scores the setup exactly as the live scanner would, places a
-    liquidity-aware stop and a TP ladder, then walks the FUTURE bars to see what actually
-    happened. Resolution uses the same event-order logic as the live shadow ledger, so a
-    trade stopped before target is a loss, not a win.
-
-    HONEST LIMITATION, and it matters: derivatives positioning, news and the event
-    calendar have no free historical feed, so backtested setups are scored on TECHNICALS
-    ONLY. Every record is tagged `source: backtest` and `context_complete: false`. Live
-    shadow trades carry the full context. Calibration keeps them separable so the two are
-    never silently blended into one over-confident number.
-
-    What this unlocks immediately:
-      - a measured win rate per score bin instead of "—"
-      - which TP level is actually worth targeting, measured rather than assumed
-      - stop distances derived from real winner drawdown
+    Not equivalent to current 1m live execution and never eligible for live
+    probability calibration or Kelly sizing. No historical derivatives/news context
+    is reconstructed. Gross outcomes here are exploratory, not evidence of net edge.
     """
 
     LOOKBACK_BARS = 1500
@@ -58,14 +40,19 @@ class WalkForwardBacktester:
         """Build a higher timeframe from 15m bars (1h=4, 4h=16, 1d=96)."""
         if len(df) < factor * 2:
             return None
-        usable = len(df) - (len(df) % factor)
-        chunk = df.iloc[:usable]
-        g = chunk.groupby(chunk.index // factor)
-        out = pd.DataFrame({
-            'open': g['open'].first(), 'high': g['high'].max(),
-            'low': g['low'].min(), 'close': g['close'].last(),
-            'volume': g['volume'].sum(),
-        }).reset_index(drop=True)
+        if "timestamp" not in df:
+            return None
+        data = df.copy()
+        data.index = pd.to_datetime(data["timestamp"], unit="ms", utc=True)
+        grouped = data.resample(f"{factor*15}min", origin="epoch")
+        out = grouped.agg({"open":"first", "high":"max", "low":"min", "close":"last", "volume":"sum"})
+        counts = grouped["close"].count()
+        # Drop an incomplete leading period. Retain the forming final period: the
+        # confluence engine explicitly discards it before HTF calculations.
+        if len(out) and counts.iloc[0] < factor:
+            out = out.iloc[1:]
+        out["timestamp"] = [int(stamp.timestamp()*1000) for stamp in out.index]
+        out = out.dropna().reset_index(drop=True)
         return out if len(out) >= 50 else None
 
     # ------------------------------------------------------------------
@@ -162,7 +149,7 @@ class WalkForwardBacktester:
                     ohlcv_4h=cls._resample(hist, 16),
                     ohlcv_1d=cls._resample(hist, 96),
                     btc_df=None, ticker=ticker, efficiency_history=None,
-                    derivatives=None, news=None, calendar=None, event_vol=None)
+                    derivatives=None, news=None, calendar=None, event_vol=None, learned_adjustments=False)
             except Exception:
                 continue
 
@@ -196,7 +183,9 @@ class WalkForwardBacktester:
                 "context_complete": False,
                 "ticker": ticker, "direction": direction, "entry": entry,
                 "stop_loss": sl, "tp_ladder": ladder, "raw_score": score,
-                "opened_epoch": time.time(), "closed_epoch": time.time(),
+                "opened_epoch": float(hist.iloc[-1]["timestamp"])/1000 + 900,
+                "closed_epoch": float(future.iloc[min(sim["bars_held"], len(future))-1]["timestamp"])/1000 + 900,
+                "resolution": "15m", "eligible_for_live_calibration": False,
                 "features": sig.get("feature_snapshot", {}),
                 "factors_passed": sig.get("factors_passed", []),
                 "factors_failed": sig.get("factors_failed", []),
@@ -268,6 +257,8 @@ class WalkForwardBacktester:
 
         return {
             "total": len(records),
+            "eligible_for_live_calibration": False,
+            "limitation": "Technical-only 15m gross outcomes; not current execution or verified net returns",
             "wins": wins,
             "win_rate": round(wins / len(records) * 100, 1),
             "outcomes": by_outcome,

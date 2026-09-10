@@ -5,16 +5,17 @@ import time
 class TelegramAlertBot:
     """
     Den Engine v32.0 Bulletproof Telegram Push Alert Engine:
-    Features 3x automatic retry attempts, 10s socket timeouts, and fallback credentials
-    to guarantee 100% reliable push delivery from Render Cloud servers!
+    Bounded retry attempts, explicit credentials, and visible delivery failures.
     """
     def __init__(self, bot_token: str, chat_id: str):
-        self.bot_token = bot_token or "8847828896:AAFcTqjJGe6VN6mbPHcB1QTlvkpQxhb5ntI"
-        self.chat_id = chat_id or "7347569157"
+        self.bot_token = bot_token
+        self.chat_id = chat_id
         self.api_url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
         self.updates_url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
 
     def send_alert(self, message_text: str):
+        if not self.bot_token or not self.chat_id:
+            return None
         payload = {
             "chat_id": self.chat_id,
             "text": message_text,
@@ -40,11 +41,13 @@ class TelegramAlertBot:
                         continue
                     print(f"[!] Telegram Alert Status Code {response.status_code} on Attempt {attempt}: {response.text}")
             except Exception as e:
-                print(f"[!] Telegram Alert Attempt {attempt} Failed: {e}")
+                print(f"[!] Telegram Alert Attempt {attempt} Failed: {type(e).__name__}")
             time.sleep(1)
         return None
 
     def send_alert_with_reply_markup(self, message_text: str):
+        if not self.bot_token or not self.chat_id:
+            return None
         payload = {
             "chat_id": self.chat_id,
             "text": message_text,
@@ -71,11 +74,13 @@ class TelegramAlertBot:
                     continue
                 print(f"[!] Telegram signal send failed {response.status_code}: {response.text[:200]}")
             except Exception as e:
-                print(f"[!] Telegram Alert Attempt {attempt} Failed: {e}")
+                print(f"[!] Telegram Alert Attempt {attempt} Failed: {type(e).__name__}")
             time.sleep(1)
         return None
 
     def get_reply_updates(self, last_update_id: int = 0) -> list:
+        if not self.bot_token or not self.chat_id:
+            return []
         payload = {"offset": last_update_id + 1, "timeout": 10}
         try:
             response = requests.post(self.updates_url, json=payload, timeout=15)
@@ -102,6 +107,8 @@ class TelegramAlertBot:
             if uid > new_last:
                 new_last = uid
             m = u.get("message", {}) or {}
+            if str((m.get("chat") or {}).get("id")) != str(self.chat_id):
+                continue
             text = (m.get("text") or "").strip()
             if not text:
                 continue
@@ -123,6 +130,8 @@ class TelegramAlertBot:
                 new_last_update_id = upd_id
                 
             msg = update.get("message", {})
+            if str((msg.get("chat") or {}).get("id")) != str(self.chat_id):
+                continue
             reply_to = msg.get("reply_to_message", {})
             reply_msg_id = reply_to.get("message_id")
             text = msg.get("text", "")
