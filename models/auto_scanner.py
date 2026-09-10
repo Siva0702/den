@@ -431,7 +431,11 @@ def build_dispatch_report() -> str:
                 net = (r.get("pnl_pct") or 0.0) / 100.0 * nz
                 tot_net += net
                 tot_fee += r.get("fee_usd") or 0.0
-                out.append(f"`{r.get('ticker'):<11}` {str(r.get('exit_reason')):<20} "
+                # exit_reason carries underscores (SCRATCHED_BREAKEVEN, TP1_HIT,
+                # SL_THEN_TP). Bare in Markdown those open an italic span that never
+                # closes, and Telegram rejects the WHOLE message with a 400. Backticks
+                # make it literal.
+                out.append(f"`{r.get('ticker'):<11}` `{str(r.get('exit_reason'))}` "
                            f"netR `{(r.get('r_multiple') or 0):+.2f}` `${net:+,.2f}`")
             Rs = [float(r.get("r_multiple") or 0.0) for r in closed]
             gRs = [float(r.get("gross_r") or 0.0) for r in closed]
