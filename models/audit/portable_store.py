@@ -2,7 +2,6 @@
 import json
 import os
 import sqlite3
-import tempfile
 import threading
 import time
 
@@ -21,6 +20,17 @@ class PortableStateStore:
     EXPORT_PATH = "audit/den_engine_export.json"
     _lock = threading.Lock()
     _initialized = False
+
+    # The SQLite mirror re-serialises the WHOLE value on every call. shadow_closed is
+    # 5.4 MB at 1904 records, so each write costs ~413ms and grows linearly with the
+    # ledger — and shadow_ledger._atomic_write calls this on every trade opened or
+    # closed. A scan resolving 10 trades paid 4.1s for nothing.
+    #
+    # This store is the THIRD copy: the JSON file is written atomically on every change
+    # and Redis holds the source of truth. Debouncing the mirror therefore risks no
+    # data — worst case the .db lags by MIRROR_MIN_INTERVAL seconds.
+    MIRROR_MIN_INTERVAL = 60.0
+    _last_mirror = {}
 
     STATE_KEYS = [
         "shadow_open",
@@ -79,9 +89,18 @@ class PortableStateStore:
     def save_state(cls, key: str, payload):
         """Save a state object to SQLite + local JSON file."""
         cls.init_db()
+        now = time.time()
+        # Large, hot keys are debounced; small ones write through immediately.
+        if not isinstance(payload, str) and (now - cls._last_mirror.get(key, 0.0)) < cls.MIRROR_MIN_INTERVAL:
+            try:
+                if len(payload) > 200:      # only debounce the big collections
+                    return
+            except TypeError:
+                pass
+        cls._last_mirror[key] = now
         with cls._lock:
             try:
-                val_str = payload if isinstance(payload, str) else json.dumps(payload, indent=2, default=str)
+                val_str = payload if isinstance(payload, str) else json.dumps(payload, default=str)
                 conn = sqlite3.connect(cls._db_file(), timeout=10.0)
                 cursor = conn.cursor()
                 cursor.execute(
