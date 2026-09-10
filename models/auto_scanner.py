@@ -59,6 +59,9 @@ ENRICH_TOP_N = 30              # candidates promoted to enrichment (also the sha
 # The work is network-bound, so more threads help until Binance starts rate-limiting,
 # which is what makes 32 slower than 16.
 MAX_FETCH_WORKERS = 16
+# Below this, round-trip fees consume more than ~0.15R per trade. See the fee-aware
+# stop floor in the scan loop for the measurement behind this number.
+MIN_STOP_PCT = 0.008
 MIN_RISK_USD = 10.0            # risk floor used while the engine has no measured edge
 # Structure-based targets expose setups where price has no room before the next
 # liquidity pool. Risking 1R to make 0.43R loses money at any win rate below 70%,
@@ -947,6 +950,25 @@ def run_continuous_quant_hunter():
             sl_pct = stop["sl_pct"]
             if sl_pct < 0.001:
                 continue
+
+            # FEE-AWARE STOP FLOOR.
+            # Round-trip taker cost is 0.12% of NOTIONAL, and notional is risk/stop%, so
+            # fee drag in R is simply 0.12/stop% — a function of stop DISTANCE, nothing
+            # else. Leverage does not enter it. Measured across 1903 shadow trades:
+            #
+            #   stop 0.0-0.5%   gross +0.548R   fees -0.480R   net +0.068R
+            #   stop 0.8-1.2%   gross +0.289R   fees -0.120R   net +0.169R
+            #   stop 1.2-2.0%   gross +0.267R   fees -0.075R   net +0.192R
+            #
+            # The tightest stops have the BEST raw edge and the WORST realised one,
+            # because costs eat 88% of it. Widening only pushes the stop further beyond
+            # the liquidity pool it already sits behind, and position size shrinks to
+            # hold dollar risk constant — so R is unchanged and the fee share falls.
+            if sl_pct < MIN_STOP_PCT:
+                widened = MIN_STOP_PCT
+                sl = format_price_raw(entry * (1 - widened) if direction == "LONG"
+                                      else entry * (1 + widened))
+                sl_pct = widened
 
             tp_ladder = build_tp_ladder(entry, sl, direction, atr_val, signal.get("liquidity"))
             if not tp_ladder:
