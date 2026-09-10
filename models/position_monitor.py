@@ -10,6 +10,7 @@ from audit.engine_efficiency import EngineEfficiencyTracker
 from alerts.signal_cooldown import SignalCooldownEngine
 from indicators.trade_decay import TradeDecayEngine
 
+AUTO_SCRATCH_ON_DECAY = False   # see _send_decay_alert for the measurement
 POSITIONS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "portfolio/active_positions.json")
 
 class ActivePositionMonitor:
@@ -236,12 +237,26 @@ class ActivePositionMonitor:
         # The user treats a scratch alert as an executed close at breakeven, so the
         # audit must record it at that moment. Exit is the ENTRY price: scratching at
         # market is flat on the move, and the only cost booked is fees.
-        try:
-            from audit.dispatch_ledger import DispatchLedger
-            DispatchLedger.record_close(pos, float(pos.get("entry_price") or price),
-                                        "SCRATCHED_BREAKEVEN")
-        except Exception as _e:
-            print(f"[!] dispatch audit (scratch) failed: {_e}", flush=True)
+        # AUTO-SCRATCH IS OFF, and the measurement says it must stay off.
+        #
+        # Booking the decay alert as a breakeven close made a scratched trade unable to
+        # win: it exits flat and still pays a full round-trip fee. 8 of the first 13
+        # dispatched signals ended this way, including setups scoring 81.8 and 78.6.
+        #
+        # Meanwhile the shadow book — same model, same 78+ band, but allowed to run to
+        # TP or SL — wins 72.9% at +0.708R out-of-sample over 318 trades. Stalling
+        # momentum is ordinary noise inside a 73% setup, not a reason to exit.
+        #
+        # The alert still fires so the user can act. The engine no longer decides for
+        # them, and the position resolves at TP or SL like every shadow trade it was
+        # calibrated against.
+        if AUTO_SCRATCH_ON_DECAY:
+            try:
+                from audit.dispatch_ledger import DispatchLedger
+                DispatchLedger.record_close(pos, float(pos.get("entry_price") or price),
+                                            "SCRATCHED_BREAKEVEN")
+            except Exception as _e:
+                print(f"[!] dispatch audit (scratch) failed: {_e}", flush=True)
         print(f"[decay] {ticker} {decay['recommendation']} score={decay['decay_score']}", flush=True)
 
     def check_active_positions(self, ticker: str, current_price: float, sentiment_multiplier: float, structure_flipped: bool, df_15m=None, bar_high: float = None, bar_low: float = None):
