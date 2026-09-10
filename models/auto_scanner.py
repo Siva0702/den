@@ -53,7 +53,12 @@ RELAXED_SCORE_FLOOR = 72.0     # engaged only after a long dry spell, and labell
 DRY_SPELL_HOURS = 12.0         # how long with no signal before the relaxed tier engages
 MIN_CALIBRATED_WIN_RATE = 0.50 # once calibrated, refuse setups the data says are coin flips
 ENRICH_TOP_N = 30              # candidates promoted to enrichment (also the shadow-learning pool)
-MAX_FETCH_WORKERS = 6
+# Measured on the Contabo box with disjoint ticker sets (a naive A/B is meaningless
+# here — the candle-aligned cache makes the second run look instant):
+#   6 workers -> ~61s   16 -> ~29s   32 -> ~43s for 87 assets
+# The work is network-bound, so more threads help until Binance starts rate-limiting,
+# which is what makes 32 slower than 16.
+MAX_FETCH_WORKERS = 16
 MIN_RISK_USD = 10.0            # risk floor used while the engine has no measured edge
 # Structure-based targets expose setups where price has no room before the next
 # liquidity pool. Risking 1R to make 0.43R loses money at any win rate below 70%,
@@ -539,7 +544,11 @@ def fetch_asset_frames(item: dict) -> dict:
         return out
     out["ok"] = True
     out["df_15m"] = df_15m
-    for tf in ("5m", "1h", "4h", "1d"):
+    # 5m deliberately NOT fetched here. It is consumed by entry_timing_ok() on the
+    # ONE candidate that reaches dispatch, so fetching it for all 87 assets threw away
+    # 86 responses every scan — roughly 20% of all calls, for data nothing reads.
+    # It is fetched lazily at the dispatch gate instead.
+    for tf in ("1h", "4h", "1d"):
         df, _ = BitunixWeexLiveFeed.get_exchange_ohlcv(ticker, base_p, tf)
         out[f"df_{tf}"] = df if df is not None and len(df) > 20 else None
     return out
@@ -1168,7 +1177,15 @@ def run_continuous_quant_hunter():
                 continue
 
             # Gate 5: execution timing on the 5m.
-            timing_ok, timing_msg = entry_timing_ok(best.get("df_5m"), best["direction"])
+            # Lazy 5m fetch: one call, only for the setup about to be dispatched.
+            _df5 = best.get("df_5m")
+            if _df5 is None:
+                try:
+                    _r = BitunixWeexLiveFeed.get_exchange_ohlcv(best["ticker"], 0, "5m")
+                    _df5 = _r[0] if isinstance(_r, tuple) else _r
+                except Exception:
+                    _df5 = None
+            timing_ok, timing_msg = entry_timing_ok(_df5, best["direction"])
             if not timing_ok:
                 print(f"[gate] {best['ticker']} held — {timing_msg}", flush=True)
                 continue
