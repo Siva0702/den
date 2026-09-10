@@ -9,7 +9,7 @@ import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import requests
 from dotenv import load_dotenv
@@ -129,7 +129,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 def start_health_server():
     try:
         port = int(os.getenv("PORT", 10000))
-        HTTPServer(('0.0.0.0', port), HealthCheckHandler).serve_forever()
+        ThreadingHTTPServer(('0.0.0.0', port), HealthCheckHandler).serve_forever()
     except Exception as e:
         print(f"[!] Health server exception: {e}", flush=True)
 
