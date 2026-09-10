@@ -531,8 +531,19 @@ class SureShotConfluenceEngine:
         if news and news.get("available"):
             # news_multiplier lives in [0.80, 1.20]; map to +/-6 points.
             news_pts = (news["news_multiplier"] - 1.0) * 30.0
+            # News is a QUALITY signal, not a directional one. Measured over 1903 trades:
+            #
+            #   BULLISH news + LONG    n=270  60.4%  +0.518R
+            #   BULLISH news + SHORT   n=398  62.8%  +0.521R   <- best cell
+            #   BEARISH news + LONG    n=415  50.6%  +0.115R
+            #   BEARISH news + SHORT   n=594  53.0%  +0.258R
+            #
+            # Bullish news makes BOTH sides work; bearish news degrades both. It reflects
+            # attention and liquidity letting a move complete, not which way it goes.
+            # The old code did `tilt_short -= news_pts`, penalising the single
+            # best-performing cell in the whole book. Both sides now move together.
             tilt_long += news_pts
-            tilt_short -= news_pts
+            tilt_short += news_pts
             if abs(news_pts) > 0.5:
                 tilt_notes.append(f"News {news['news_bias'].lower()} ({news_pts:+.1f} pts)")
 
