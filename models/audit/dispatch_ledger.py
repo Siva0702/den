@@ -153,6 +153,19 @@ class DispatchLedger:
                 return False
 
             sign = 1.0 if str(dr).upper() == "LONG" else -1.0
+
+            # A stop fills AT the stop, not wherever price had run to by the time the
+            # monitor noticed. Booking the observed price recorded LMT as -2.82R on a
+            # trade whose stop caps it at -1R: entry 592.51, stop 596.55, exit 603.20.
+            # This is the same defect as bug #12 in the original audit, and it inflates
+            # losses without bound whenever price gaps past the level between scans.
+            if str(reason).upper().startswith("SL") and stop > 0:
+                # LONG: stop sits BELOW entry, so "past it" means exit < stop.
+                # SHORT: stop sits ABOVE entry, so "past it" means exit > stop.
+                beyond = (exit_price < stop) if sign > 0 else (exit_price > stop)
+                if beyond:
+                    exit_price = stop
+
             gross_pct = (exit_price - entry) / entry * 100.0 * sign
             sl_pct = abs(entry - stop) / entry * 100.0 if stop else 0.0
             now = time.time()
